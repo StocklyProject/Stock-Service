@@ -17,20 +17,20 @@ jobs:
       - name: Check out the repo
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: 3.12
-
-      - name: Install dependencies
-        run: |
-          python3 -m pip install --upgrade pip
-          pip3 install -r src/requirements.txt
+#      - name: Set up Python
+#        uses: actions/setup-python@v2
+#        with:
+#          python-version: 3.12
+#
+#      - name: Install dependencies
+#        run: |
+#          python3 -m pip install --upgrade pip
+#          pip3 install -r src/requirements.txt
 
       - name: Set Image Tag based on Docker Hub latest tag
         id: set_image_tag
         run: |
-          LATEST_TAG=$(curl -s -H "Authorization: Bearer ${{ secrets.DOCKER_TOKEN }}" "https://hub.docker.com/v2/repositories/jungeunyoon/stock_server/tags?page_size=1" | jq -r '.results[0].name')
+          LATEST_TAG=$(curl -s -H "Authorization: Bearer ${{ secrets.DOCKER_TOKEN }}" "https://hub.docker.com/v2/repositories/jungeunyoon/stock-service/tags?page_size=1" | jq -r '.results[0].name')
           if [ -z "$LATEST_TAG" ]; then
             LATEST_TAG="0.0.0"
           fi
