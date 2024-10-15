@@ -5,7 +5,7 @@ FROM python:3.9-slim
 WORKDIR /Stock-Service
 
 # requirements.txt 복사 후 필요한 패키지 설치
-COPY requirements.txt .
+COPY src/requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # 서비스 소스 코드 복사
