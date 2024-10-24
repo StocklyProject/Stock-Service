@@ -7,7 +7,7 @@ def kafka_consumer():
     return KafkaConsumer(
         'real_time_stock_prices',
         bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
-        auto_offset_reset='earliest',
+        auto_offset_reset='latest',
         group_id='stock_consumer_group',
         value_deserializer=lambda x: json.loads(x.decode('utf-8'))
     )
@@ -17,6 +17,7 @@ def kafka_consumer():
 def init_kafka_producer():
     return KafkaProducer(
         bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
+        api_version=(2, 8, 0),
         value_serializer=lambda v: json.dumps(v).encode('utf-8')
     )
 
