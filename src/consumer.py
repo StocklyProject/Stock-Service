@@ -3,20 +3,22 @@ from kafka import KafkaConsumer, KafkaProducer
 
 
 # Kafka Consumer 초기화
-def kafka_consumer():
+def kafka_consumer(topic: str):
     return KafkaConsumer(
-        'real_time_stock_prices',
+        topic,
         bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
-        auto_offset_reset='latest',
+        # bootstrap_servers=['192.168.10.20:9094'],
+        auto_offset_reset='earliest',
         group_id='stock_consumer_group',
-        value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+        value_deserializer=lambda x: json.loads(x.decode('utf-8')),
+        enable_auto_commit=True,
     )
-
 
 # Kafka Producer 초기화 (결과 전송용)
 def init_kafka_producer():
     return KafkaProducer(
         bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
+        # bootstrap_servers=['192.168.10.20:9094'],
         api_version=(2, 8, 0),
         value_serializer=lambda v: json.dumps(v).encode('utf-8')
     )
