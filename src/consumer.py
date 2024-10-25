@@ -3,13 +3,13 @@ from kafka import KafkaConsumer, KafkaProducer
 
 
 # Kafka Consumer 초기화
-def kafka_consumer(topic: str):
+def kafka_consumer(topic: str, group_id: str):
     return KafkaConsumer(
         topic,
         bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
         # bootstrap_servers=['192.168.10.20:9094'],
         auto_offset_reset='earliest',
-        group_id='stock_consumer_group',
+        group_id=group_id,
         value_deserializer=lambda x: json.loads(x.decode('utf-8')),
         enable_auto_commit=True,
     )
