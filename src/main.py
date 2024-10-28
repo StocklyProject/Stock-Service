@@ -20,18 +20,23 @@ app.add_middleware(
 
 # SSE 비동기 이벤트 생성기
 async def sse_event_generator(consumer):
-    print(f"Starting SSE generator")
+    print("Starting SSE generator")
     try:
-        for message in consumer:
-            stock_data = message.value
-            print(f"Sending stock data to client: {stock_data}")
-            yield f"data: {json.dumps(stock_data)}\n\n"
+        while True:
+            # 소비자에서 메시지 폴링
+            raw_messages = consumer.poll(timeout_ms=1000)  # 1초마다 메시지 확인
+            for tp, messages in raw_messages.items():
+                for message in messages:
+                    stock_data = message.value
+                    print(f"Sending stock data to client: {stock_data}")
+                    yield f"data: {json.dumps(stock_data)}\n\n"
+
             await asyncio.sleep(0.5)  # 메시지 간의 대기
     except Exception as e:
         print(f"Error in SSE generator: {e}")
     finally:
         consumer.close()
-        print(f"Closed Kafka consumer")
+        print("Closed Kafka consumer")
 
 
 # SSE 엔드포인트 (실시간 데이터 스트리밍)
