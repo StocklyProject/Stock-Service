@@ -1,9 +1,9 @@
 import json
 from kafka import KafkaConsumer, KafkaProducer
 
-
 # Kafka Consumer 초기화
 def kafka_consumer(topic: str, group_id: str):
+    print(f"Initializing Kafka consumer for topic '{topic}' with group_id '{group_id}'")
     return KafkaConsumer(
         topic,
         bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
@@ -16,13 +16,13 @@ def kafka_consumer(topic: str, group_id: str):
 
 # Kafka Producer 초기화 (결과 전송용)
 def init_kafka_producer():
+    print("Initializing Kafka producer")
     return KafkaProducer(
         bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
         # bootstrap_servers=['192.168.10.20:9094'],
         api_version=(2, 8, 0),
         value_serializer=lambda v: json.dumps(v).encode('utf-8')
     )
-
 
 # 메시지 처리
 def process_message(message, producer):
@@ -32,15 +32,15 @@ def process_message(message, producer):
 
     # 처리 후 Kafka로 결과 전송
     result_data = {"job_id": job_id, "status": "processed", "result": "success"}
+    print(f"Sending processed data: {result_data}")
     producer.send('processed_stock_data', result_data)
     producer.flush()
 
-
 # Consumer 실행
 def start_consumer(topic: str, group_id: str):
+    print(f"Starting consumer for topic '{topic}' and group_id '{group_id}'")
     consumer = kafka_consumer(topic, group_id)
     producer = init_kafka_producer()
 
     for message in consumer:
         process_message(message, producer)
-

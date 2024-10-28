@@ -1,11 +1,11 @@
 import json
-from kafka import KafkaConsumer, KafkaProducer
 from fastapi import FastAPI, Query
 from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 import asyncio
 from datetime import datetime, timedelta
 from .consumer import kafka_consumer, init_kafka_producer
+
 app = FastAPI()
 
 app.add_middleware(
@@ -16,23 +16,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # SSE 비동기 이벤트 생성기
 async def sse_event_generator(topic: str, group_id: str):
+    print(f"Initializing Kafka consumer for topic '{topic}' with group_id '{group_id}'")
     consumer = kafka_consumer(topic, group_id)
     try:
         for message in consumer:
             stock_data = message.value
+            print(f"Received stock data: {stock_data}")
             yield f"data: {json.dumps(stock_data)}\n\n"
             await asyncio.sleep(0.5)
     finally:
         consumer.close()
+        print(f"Kafka consumer for topic '{topic}' closed")
 
 # SSE 엔드포인트 (실시간 데이터 스트리밍)
 @app.get("/stream/{symbol}", response_class=StreamingResponse)
 async def sse_stream(symbol: str):
     topic = f"real_time_stock_prices_{symbol}"
     group_id = f"stream_consumer_group_{symbol}"
+    print(f"Starting SSE stream for symbol '{symbol}' on topic '{topic}'")
     return StreamingResponse(sse_event_generator(topic, group_id), media_type="text/event-stream")
 
 # 필터링된 데이터 스트리밍 엔드포인트 (SSE)
@@ -40,6 +43,7 @@ async def sse_stream(symbol: str):
 async def sse_filtered_stream(symbol: str = Query(...), interval: int = Query(...)):
     topic = f"filtered_{symbol}_{interval}m"
     group_id = f"filter_consumer_group_{symbol}_{interval}"
+    print(f"Starting filtered SSE stream for symbol '{symbol}' with interval '{interval}'")
     return StreamingResponse(sse_event_generator(topic, group_id), media_type="text/event-stream")
 
 # Kafka Producer를 활용한 필터링된 데이터 처리
@@ -47,15 +51,17 @@ async def batch_processor(symbol: str, interval: int):
     topic = f"real_time_stock_prices_{symbol}"
     consumer = kafka_consumer(topic, f"batch_processor_{symbol}_{interval}")
     producer = init_kafka_producer()
+    print(f"Batch processing started for symbol '{symbol}' with interval '{interval}'")
 
     interval_duration = timedelta(minutes=interval)
     data_buffer = []
     current_interval = datetime.now().replace(second=0, microsecond=0)
-    output_topic = f"filtered_{symbol}_{interval}m"  # 생성할 필터링된 데이터 토픽
+    output_topic = f"filtered_{symbol}_{interval}m"
 
     try:
         for message in consumer:
             stock_data = message.value
+            print(f"Processing message: {stock_data}")
             timestamp = datetime.strptime(stock_data["date"], "%H%M%S")
             timestamp = datetime.combine(current_interval.date(), timestamp.time())
 
@@ -64,7 +70,7 @@ async def batch_processor(symbol: str, interval: int):
             else:
                 if data_buffer:
                     filtered_data = generate_filtered_data(data_buffer)
-                    # 필터링된 데이터를 output_topic에 전송
+                    print(f"Sending filtered data: {filtered_data}")
                     producer.send(output_topic, value=filtered_data)
                     producer.flush()
                     data_buffer = [stock_data]
@@ -74,9 +80,11 @@ async def batch_processor(symbol: str, interval: int):
     finally:
         consumer.close()
         producer.close()
+        print(f"Batch processor for symbol '{symbol}' stopped")
 
 # 필터링된 데이터 생성 함수
 def generate_filtered_data(data_buffer):
+    print("Generating filtered data")
     return {
         "date": data_buffer[-1]["date"],
         "open": float(data_buffer[0]["open"]),
