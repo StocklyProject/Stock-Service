@@ -33,22 +33,25 @@ async def sse_event_generator(consumer):
         consumer.close()
         print(f"Closed Kafka consumer")
 
+
 # SSE 엔드포인트 (실시간 데이터 스트리밍)
 @app.get("/stream/{symbol}", response_class=StreamingResponse)
 async def sse_stream(symbol: str):
     topic = f"real_time_stock_prices_{symbol}"
-    group_id = f"stream_consumer_group_{symbol}"
+    # 고유한 group_id 생성
+    group_id = f"stream_consumer_group_{symbol}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
     consumer = kafka_consumer(topic, group_id)
-    print(f"Starting SSE stream for symbol '{symbol}' on topic '{topic}'")
+    print(f"Starting SSE stream for symbol '{symbol}' on topic '{topic}' with unique group_id '{group_id}'")
     return StreamingResponse(sse_event_generator(consumer), media_type="text/event-stream")
 
 # 필터링된 데이터 스트리밍 엔드포인트 (SSE)
 @app.get("/streamFilter", response_class=StreamingResponse)
 async def sse_filtered_stream(symbol: str = Query(...), interval: int = Query(...)):
     topic = f"filtered_{symbol}_{interval}m"
-    group_id = f"filter_consumer_group_{symbol}_{interval}"
+    # 고유한 group_id 생성
+    group_id = f"filter_consumer_group_{symbol}_{interval}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
     consumer = kafka_consumer(topic, group_id)
-    print(f"Starting filtered SSE stream for symbol '{symbol}' with interval '{interval}'")
+    print(f"Starting filtered SSE stream for symbol '{symbol}' with interval '{interval}' and unique group_id '{group_id}'")
     return StreamingResponse(sse_event_generator(consumer), media_type="text/event-stream")
 
 # Kafka Producer를 활용한 필터링된 데이터 처리
