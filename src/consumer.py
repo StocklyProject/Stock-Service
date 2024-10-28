@@ -23,23 +23,23 @@ def init_kafka_producer():
         value_serializer=lambda v: json.dumps(v).encode('utf-8')
     )
 
-# 메시지 처리 함수
-def process_message(message, producer):
-    stock_data = message.value
-    job_id = stock_data.get("job_id")
-    print(f"Processing job_id {job_id} with data: {stock_data}")
-
-    # 처리 후 Kafka로 결과 전송
-    result_data = {"job_id": job_id, "status": "processed", "result": "success"}
-    producer.send('processed_stock_data', result_data)
-    producer.flush()
-    print(f"Result sent to Kafka for job_id {job_id}")
-
-# Consumer 실행 함수
-def start_consumer(topic: str, group_id: str):
-    consumer = kafka_consumer(topic, group_id)
-    producer = init_kafka_producer()
-    print(f"Consumer started for topic '{topic}' with group_id '{group_id}'")
-
-    for message in consumer:
-        process_message(message, producer)
+# # 메시지 처리 함수
+# def process_message(message, producer):
+#     stock_data = message.value
+#     job_id = stock_data.get("job_id")
+#     print(f"Processing job_id {job_id} with data: {stock_data}")
+#
+#     # 처리 후 Kafka로 결과 전송
+#     result_data = {"job_id": job_id, "status": "processed", "result": "success"}
+#     producer.send('processed_stock_data', result_data)
+#     producer.flush()
+#     print(f"Result sent to Kafka for job_id {job_id}")
+#
+# # Consumer 실행 함수
+# def start_consumer(topic: str, group_id: str):
+#     consumer = kafka_consumer(topic, group_id)
+#     producer = init_kafka_producer()
+#     print(f"Consumer started for topic '{topic}' with group_id '{group_id}'")
+#
+#     for message in consumer:
+#         process_message(message, producer)

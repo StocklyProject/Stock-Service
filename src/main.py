@@ -1,4 +1,3 @@
-# main.py
 import json
 from fastapi import FastAPI, Query
 from fastapi.responses import StreamingResponse
@@ -18,10 +17,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # SSE 비동기 이벤트 생성기
-async def sse_event_generator(topic: str, group_id: str):
-    print(f"Starting SSE generator for topic '{topic}' with group_id '{group_id}'")
-    consumer = kafka_consumer(topic, group_id)
+async def sse_event_generator(consumer):
+    print(f"Starting SSE generator")
     try:
         for message in consumer:
             stock_data = message.value
@@ -32,23 +31,25 @@ async def sse_event_generator(topic: str, group_id: str):
         print(f"Error in SSE generator: {e}")
     finally:
         consumer.close()
-        print(f"Closed Kafka consumer for topic '{topic}'")
+        print(f"Closed Kafka consumer")
 
 # SSE 엔드포인트 (실시간 데이터 스트리밍)
 @app.get("/stream/{symbol}", response_class=StreamingResponse)
 async def sse_stream(symbol: str):
     topic = f"real_time_stock_prices_{symbol}"
     group_id = f"stream_consumer_group_{symbol}"
+    consumer = kafka_consumer(topic, group_id)
     print(f"Starting SSE stream for symbol '{symbol}' on topic '{topic}'")
-    return StreamingResponse(sse_event_generator(topic, group_id), media_type="text/event-stream")
+    return StreamingResponse(sse_event_generator(consumer), media_type="text/event-stream")
 
 # 필터링된 데이터 스트리밍 엔드포인트 (SSE)
 @app.get("/streamFilter", response_class=StreamingResponse)
 async def sse_filtered_stream(symbol: str = Query(...), interval: int = Query(...)):
     topic = f"filtered_{symbol}_{interval}m"
     group_id = f"filter_consumer_group_{symbol}_{interval}"
+    consumer = kafka_consumer(topic, group_id)
     print(f"Starting filtered SSE stream for symbol '{symbol}' with interval '{interval}'")
-    return StreamingResponse(sse_event_generator(topic, group_id), media_type="text/event-stream")
+    return StreamingResponse(sse_event_generator(consumer), media_type="text/event-stream")
 
 # Kafka Producer를 활용한 필터링된 데이터 처리
 async def batch_processor(symbol: str, interval: int):
