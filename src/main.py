@@ -1,9 +1,11 @@
+# main.py
 import json
 from fastapi import FastAPI, Query
 from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
-import asyncio
 from datetime import datetime, timedelta
+import asyncio
+
 from .consumer import kafka_consumer, init_kafka_producer
 
 app = FastAPI()
@@ -18,17 +20,19 @@ app.add_middleware(
 
 # SSE 비동기 이벤트 생성기
 async def sse_event_generator(topic: str, group_id: str):
-    print(f"Initializing Kafka consumer for topic '{topic}' with group_id '{group_id}'")
+    print(f"Starting SSE generator for topic '{topic}' with group_id '{group_id}'")
     consumer = kafka_consumer(topic, group_id)
     try:
         for message in consumer:
             stock_data = message.value
-            print(f"Received stock data: {stock_data}")
+            print(f"Sending stock data to client: {stock_data}")
             yield f"data: {json.dumps(stock_data)}\n\n"
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.5)  # 메시지 간의 대기
+    except Exception as e:
+        print(f"Error in SSE generator: {e}")
     finally:
         consumer.close()
-        print(f"Kafka consumer for topic '{topic}' closed")
+        print(f"Closed Kafka consumer for topic '{topic}'")
 
 # SSE 엔드포인트 (실시간 데이터 스트리밍)
 @app.get("/stream/{symbol}", response_class=StreamingResponse)
@@ -51,7 +55,6 @@ async def batch_processor(symbol: str, interval: int):
     topic = f"real_time_stock_prices_{symbol}"
     consumer = kafka_consumer(topic, f"batch_processor_{symbol}_{interval}")
     producer = init_kafka_producer()
-    print(f"Batch processing started for symbol '{symbol}' with interval '{interval}'")
 
     interval_duration = timedelta(minutes=interval)
     data_buffer = []
@@ -61,7 +64,6 @@ async def batch_processor(symbol: str, interval: int):
     try:
         for message in consumer:
             stock_data = message.value
-            print(f"Processing message: {stock_data}")
             timestamp = datetime.strptime(stock_data["date"], "%H%M%S")
             timestamp = datetime.combine(current_interval.date(), timestamp.time())
 
@@ -80,11 +82,10 @@ async def batch_processor(symbol: str, interval: int):
     finally:
         consumer.close()
         producer.close()
-        print(f"Batch processor for symbol '{symbol}' stopped")
+        print(f"Closed consumer and producer for batch processing on topic '{output_topic}'")
 
 # 필터링된 데이터 생성 함수
 def generate_filtered_data(data_buffer):
-    print("Generating filtered data")
     return {
         "date": data_buffer[-1]["date"],
         "open": float(data_buffer[0]["open"]),
