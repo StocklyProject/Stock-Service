@@ -37,13 +37,10 @@ def process_message(message, producer):
 
 
 # Consumer 실행
-def start_consumer():
-    consumer = kafka_consumer()
+def start_consumer(topic: str, group_id: str):
+    consumer = kafka_consumer(topic, group_id)
     producer = init_kafka_producer()
 
     for message in consumer:
         process_message(message, producer)
 
-
-if __name__ == "__main__":
-    start_consumer()
