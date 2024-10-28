@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta
 import asyncio
-
+from queue import Queue
 from .consumer import kafka_consumer, init_kafka_producer
 
 app = FastAPI()
@@ -18,24 +18,33 @@ app.add_middleware(
 )
 
 
+# Kafka 데이터를 읽어서 큐에 전달하는 스레드 작업 함수
+def consume_to_queue(consumer, queue):
+    for message in consumer:
+        queue.put(message.value)  # 메시지 데이터를 큐에 전달
+    consumer.close()
+
 # SSE 비동기 이벤트 생성기
 async def sse_event_generator(consumer):
     print("Starting SSE generator")
+    queue = Queue()
+
+    # Kafka 소비자를 스레드에서 실행
+    consumer_thread = Thread(target=consume_to_queue, args=(consumer, queue))
+    consumer_thread.start()
+
     try:
         while True:
-            # 소비자에서 메시지 폴링
-            raw_messages = consumer.poll(timeout_ms=1000)  # 1초마다 메시지 확인
-            for tp, messages in raw_messages.items():
-                for message in messages:
-                    stock_data = message.value
-                    print(f"Sending stock data to client: {stock_data}")
-                    yield f"data: {json.dumps(stock_data)}\n\n"
-
+            if not queue.empty():
+                stock_data = queue.get()
+                print(f"Sending stock data to client: {stock_data}")
+                yield f"data: {json.dumps(stock_data)}\n\n"
             await asyncio.sleep(0.5)  # 메시지 간의 대기
     except Exception as e:
         print(f"Error in SSE generator: {e}")
     finally:
         consumer.close()
+        consumer_thread.join()
         print("Closed Kafka consumer")
 
 
