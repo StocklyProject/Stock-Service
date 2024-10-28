@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import asyncio
 from queue import Queue
 from .consumer import kafka_consumer, init_kafka_producer
+from threading import Thread
 
 app = FastAPI()
 
