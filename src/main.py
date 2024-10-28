@@ -138,9 +138,11 @@ app.add_middleware(
 async def async_kafka_consumer(topic: str, group_id: str):
     consumer = AIOKafkaConsumer(
         topic,
-        bootstrap_servers='kafka-broker.stockly.svc.cluster.local:9092',
+        bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
         group_id=group_id,
         auto_offset_reset='earliest',
+        value_deserializer=lambda x: json.loads(x.decode('utf-8')),
+        enable_auto_commit=True,
     )
     await consumer.start()
     return consumer
@@ -180,7 +182,8 @@ async def sse_filtered_stream(symbol: str = Query(...), interval: int = Query(..
 # Kafka Producer 비동기 초기화 (결과 전송용)
 async def init_kafka_producer():
     producer = AIOKafkaProducer(
-        bootstrap_servers='kafka-broker.stockly.svc.cluster.local:9092',
+        bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
+        value_serializer=lambda v: json.dumps(v).encode('utf-8')
     )
     await producer.start()
     return producer
