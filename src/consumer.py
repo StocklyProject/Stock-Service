@@ -1,47 +1,17 @@
 import json
-from kafka import KafkaConsumer, KafkaProducer
+from aiokafka import AIOKafkaConsumer
 
-
-# Kafka Consumer 초기화
-def kafka_consumer():
-    return KafkaConsumer(
-        'real_time_stock_prices',
-        bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
-        auto_offset_reset='latest',
-        group_id='stock_consumer_group',
-        value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+# 비동기 Kafka Consumer 초기화
+async def async_kafka_consumer(topic: str, group_id: str):
+    consumer = AIOKafkaConsumer(
+        topic,
+        bootstrap_servers=['192.168.10.24:9094'],
+        group_id=group_id,
+        auto_offset_reset='earliest',
+        value_deserializer=lambda x: json.loads(x.decode('utf-8')),
+        enable_auto_commit=True,
+        max_poll_interval_ms=300000,  # 기본값은 300000ms(5분)이며, 필요에 따라 조정
+        session_timeout_ms=45000,
     )
-
-
-# Kafka Producer 초기화 (결과 전송용)
-def init_kafka_producer():
-    return KafkaProducer(
-        bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
-        api_version=(2, 8, 0),
-        value_serializer=lambda v: json.dumps(v).encode('utf-8')
-    )
-
-
-# 메시지 처리
-def process_message(message, producer):
-    stock_data = message.value
-    job_id = stock_data.get("job_id")
-    print(f"Processing job_id {job_id} with data: {stock_data}")
-
-    # 처리 후 Kafka로 결과 전송
-    result_data = {"job_id": job_id, "status": "processed", "result": "success"}
-    producer.send('processed_stock_data', result_data)
-    producer.flush()
-
-
-# Consumer 실행
-def start_consumer():
-    consumer = kafka_consumer()
-    producer = init_kafka_producer()
-
-    for message in consumer:
-        process_message(message, producer)
-
-
-if __name__ == "__main__":
-    start_consumer()
+    await consumer.start()
+    return consumer
