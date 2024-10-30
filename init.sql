@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS stock (
     symbol VARCHAR(100),
     high INT,
     low INT,
-    volume INT,
+    volume BIGINT,
     date DATETIME,
     open INT,
     close INT,
