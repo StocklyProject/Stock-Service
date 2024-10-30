@@ -1,53 +1,40 @@
 import asyncio
 import json
 from .database import get_db_connection
-from datetime import datetime, timedelta
+from datetime import datetime
+import pytz
+
+
+KST = pytz.timezone('Asia/Seoul')
 
 # 데이터 형식 변환 함수
 def format_data(row):
     """데이터 형식을 지정된 형식에 맞게 변환"""
     return {
         "symbol": row["symbol"],
-        "date": row["date"].strftime("%H:%M:%S") if isinstance(row["date"], datetime) else row["date"],
+        "date": row["date_group"].strftime("%H:%M:%S") if isinstance(row["date_group"], datetime) else row["date_group"],
         "open": f"{float(row['open'])}",
         "close": f"{float(row['close'])}",
         "high": str(row["high"]),
         "low": str(row["low"]),
         "rate_price": f"{int(row.get('rate_price', 0))}" if row.get('rate_price', 0) < 0 else f"+{int(row.get('rate_price', 0))}",
-        "rate": f"{row.get('rate', 0.0)}" if row.get('rate', 0.0) < 0 else f"+{row.get('rate', 0.0)}",  # 비율 값이 음수일 경우 그대로 표시
+        "rate": f"{row.get('rate', 0.0)}" if row.get('rate', 0.0) < 0 else f"+{row.get('rate', 0.0)}",
         "volume": str(row["volume"])
     }
 
-# 필터링된 데이터 조회 함수
-async def get_filtered_data(symbol: str, interval: str):
+async def get_filtered_data(symbol: str, interval: str, start_time=None):
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
 
-    now = datetime.now()
-
-    # 각 interval에 맞는 시간 기준을 설정
+    # Interval에 따른 group_by 설정
     if interval == "1m":
-        time_threshold = now - timedelta(minutes=1)
-        group_by = "MINUTE(date)"
+        group_by = "FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(created_at) / 60) * 60)"
     elif interval == "5m":
-        time_threshold = now - timedelta(minutes=5)
-        group_by = "FLOOR(MINUTE(date) / 5)"
-    elif interval == "1d":
-        time_threshold = now - timedelta(days=1)
-        group_by = "DATE(date)"
-    elif interval == "1w":
-        time_threshold = now - timedelta(weeks=1)
-        group_by = "WEEK(date)"
-    elif interval == "1M":
-        time_threshold = now - timedelta(weeks=4)  # 월 단위는 약 4주
-        group_by = "MONTH(date)"
-    elif interval == "1y":
-        time_threshold = now - timedelta(days=365)
-        group_by = "YEAR(date)"
+        group_by = "FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(created_at) / 300) * 300)"
     else:
         raise ValueError("Invalid interval")
 
-    # 필터링된 데이터 조회 쿼리
+    # SQL 쿼리 실행
     query = f"""
         SELECT 
             symbol,
@@ -59,21 +46,16 @@ async def get_filtered_data(symbol: str, interval: str):
             AVG(rate) AS rate,
             AVG(rate_price) AS rate_price,
             {group_by} AS date_group,
-            MAX(date) AS date
+            MAX(created_at) AS last_created
         FROM stock
-        WHERE symbol = %s AND date >= %s
-        GROUP BY {group_by}
-        ORDER BY date_group DESC
+        WHERE symbol = %s AND created_at >= %s
+        GROUP BY date_group
+        ORDER BY date_group
     """
 
-    # Execute the query with the symbol and time_threshold
-    cursor.execute(query, (symbol, time_threshold))
-
+    cursor.execute(query, (symbol, start_time))
     rows = cursor.fetchall()
-
-    # 결과 형식 변환
     formatted_rows = [format_data(row) for row in rows]
-
     cursor.close()
     connection.close()
     return formatted_rows

@@ -9,10 +9,12 @@ from datetime import datetime
 import asyncio
 from . import routes as stockDetails_routes
 from starlette.middleware.cors import CORSMiddleware
+import pytz
 
 # 최신 데이터를 저장할 변수, 빈 딕셔너리로 초기화
 latest_data = {}
 volume_accumulator = 0  # 거래량 합계를 저장할 변수
+KST = pytz.timezone('Asia/Seoul')  # 한국 시간대 설정
 
 # Kafka에서 최신 데이터를 계속 가져오면서 1분간의 거래량을 누적하는 비동기 함수
 async def fetch_latest_data():
@@ -40,6 +42,9 @@ async def store_latest_data():
         connection = get_db_connection()
         cursor = connection.cursor()
 
+        # 한국 시간으로 현재 시간 설정
+        now_kst = datetime.now(KST)
+
         # DB에 데이터 저장 쿼리
         query = """
         INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price)
@@ -47,7 +52,7 @@ async def store_latest_data():
         """
         values = (
             latest_data['symbol'],
-            datetime.now(),
+            now_kst,  # 한국 시간으로 저장
             latest_data['open'],
             latest_data['close'],
             latest_data['high'],
@@ -60,8 +65,6 @@ async def store_latest_data():
         connection.commit()
         cursor.close()
         connection.close()
-
-        print(f"Data saved for symbol {latest_data['symbol']} at {datetime.now()} with accumulated volume {volume_accumulator}")
 
         # 거래량 누적 변수 초기화
         volume_accumulator = 0
@@ -76,14 +79,12 @@ async def lifespan(app: FastAPI):
 
     # Kafka 데이터를 계속해서 수신하는 작업 실행
     kafka_task = asyncio.create_task(fetch_latest_data())
-    print("Started Kafka consumer for real-time data tracking")
 
     yield  # FastAPI 애플리케이션이 실행되는 동안 스케줄러와 Kafka 수신 작업이 실행됨
 
     # 애플리케이션 종료 시 스케줄러와 Kafka 수신 작업 종료
     scheduler.shutdown()
     kafka_task.cancel()
-    print("Scheduler and Kafka consumer shut down")
 
 # lifespan을 FastAPI 앱에 적용
 app = FastAPI(lifespan=lifespan)
