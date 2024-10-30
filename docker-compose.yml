@@ -9,6 +9,8 @@ services:
       - "8001:8001"
     env_file:
       - .env
+    depends_on:
+      - stockDB
     networks:
       - app-network
 
@@ -17,7 +19,7 @@ services:
     ports:
       - "3305:3306"
     env_file:
-      - .env  # 동일한 환경 변수 파일을 사용
+      - .env
     volumes:
       - db_data:/var/lib/mysql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
