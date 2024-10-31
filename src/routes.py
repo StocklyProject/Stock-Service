@@ -1,4 +1,4 @@
-from fastapi import Query, APIRouter
+from fastapi import Query, APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from datetime import datetime
 from .consumer import async_kafka_consumer
@@ -7,6 +7,7 @@ import json
 import asyncio
 import pytz
 from datetime import timezone, timedelta
+from src.database import get_db_connection
 
 KST = pytz.timezone('Asia/Seoul')
 
@@ -73,3 +74,63 @@ async def sse_filtered_stream(symbol: str = Query(...), interval: str = Query(..
             await asyncio.sleep(5)
 
     return StreamingResponse(filtered_event_generator(), media_type="text/event-stream")
+
+
+@router.get("/historicalFilter")
+async def get_historical_data_filtered(
+        symbol: str = Query(..., description="Stock symbol to retrieve data for"),
+        interval: str = Query(..., description="Time interval: 1d, 1w, 1m, 1y")
+):
+    # interval에 따른 그룹화 기준 및 날짜 형식 선택
+    if interval == "1d":
+        group_by_clause = "date"  # 일 단위 집계
+        select_clause = "DATE_FORMAT(date, '%Y-%m-%d') AS date"
+    elif interval == "1w":
+        # 주 단위 집계를 5일 간격으로 그룹화
+        # 각 symbol의 데이터 시작 날짜로부터 5일씩 묶어서 그룹화
+        group_by_clause = "FLOOR(DATEDIFF(date, (SELECT MIN(date) FROM stock WHERE symbol = %s)) / 5)"
+        select_clause = """
+            DATE_FORMAT(MIN(date), '%Y-%m-%d') AS start_date,
+            DATE_FORMAT(MAX(date), '%Y-%m-%d') AS end_date
+        """
+    elif interval == "1m":
+        group_by_clause = "YEAR(date), MONTH(date)"  # 월 단위 집계
+        select_clause = "YEAR(date) AS year, DATE_FORMAT(MAX(date), '%Y-%m') AS date"
+    elif interval == "1y":
+        group_by_clause = "YEAR(date)"  # 연 단위 집계
+        select_clause = "YEAR(date) AS year"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid interval. Use '1d', '1w', '1m', or '1y'.")
+
+    # DB에서 집계 데이터 조회
+    db = get_db_connection()
+    cursor = db.cursor(dictionary=True)
+    query = f"""
+        SELECT 
+            symbol,
+            {select_clause},
+            AVG(open) AS open,
+            AVG(close) AS close,
+            MAX(high) AS high,
+            MIN(low) AS low,
+            SUM(volume) AS volume,
+            AVG(rate) AS rate,
+            AVG(rate_price) AS rate_price
+        FROM stock
+        WHERE symbol = %s
+        GROUP BY symbol, {group_by_clause}
+        ORDER BY MIN(date);
+    """
+    # 주간 집계일 경우, 쿼리에 symbol 파라미터를 두 번 전달 (하나는 기준 날짜 계산용)
+    if interval == "1w":
+        cursor.execute(query, (symbol, symbol))
+    else:
+        cursor.execute(query, (symbol,))
+    results = cursor.fetchall()
+    cursor.close()
+    db.close()
+
+    if not results:
+        raise HTTPException(status_code=404, detail="No data found for the given symbol and interval.")
+
+    return results
