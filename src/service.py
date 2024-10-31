@@ -3,7 +3,7 @@ import json
 from .database import get_db_connection
 from datetime import datetime
 import pytz
-
+from .logger import logger
 
 KST = pytz.timezone('Asia/Seoul')
 
@@ -62,14 +62,15 @@ async def get_filtered_data(symbol: str, interval: str, start_time=None):
 
 # SSE 비동기 이벤트 생성기
 async def sse_event_generator(consumer):
+    logger.info("Starting SSE event generator")
     try:
         while True:
             message = await consumer.getone()  # 비동기로 메시지 하나를 가져옴
             stock_data = message.value
-            print(f"Sending stock data to client: {stock_data}")
+            logger.debug(f"Sending stock data to client: {stock_data}")
             yield f"data: {json.dumps(stock_data)}\n\n"
             await asyncio.sleep(0.5)  # 메시지 간의 대기
     except Exception as e:
-        print(f"Error in SSE generator: {e}")
+        logger.error(f"Error in SSE generator: {e}")
     finally:
         await consumer.stop()
