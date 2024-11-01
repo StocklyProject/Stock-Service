@@ -7,7 +7,8 @@ import json
 import asyncio
 import pytz
 from datetime import timezone, timedelta
-from src.database import get_db_connection
+from .database import get_db_connection
+from .logger import logger
 
 KST = pytz.timezone('Asia/Seoul')
 
@@ -24,6 +25,17 @@ async def sse_stream(symbol: str):
     group_id = f"sse_consumer_group_{symbol}_{now_kst.strftime('%Y%m%d%H%M%S%f')}"
     consumer = await async_kafka_consumer(topic, group_id)
     return StreamingResponse(sse_event_generator(consumer), media_type="text/event-stream")
+
+# SSE 엔드포인트 (실시간 호가 데이터 스트리밍)
+@router.get("/orderBooks/{symbol}", response_class=StreamingResponse)
+async def sse_asking_stream(symbol: str):
+    logger.info(f"Received SSE order book stream request for symbol: {symbol}")
+    topic = "real_time_asking_prices"
+    now_kst = datetime.now(KST)
+    group_id = f"sse_asking_group_{symbol}_{now_kst.strftime('%Y%m%d%H%M%S%f')}"
+    consumer = await async_kafka_consumer(topic, group_id)
+    return StreamingResponse(sse_event_generator(consumer), media_type="text/event-stream")
+
 
 @router.get("/streamFilter", response_class=StreamingResponse)
 async def sse_filtered_stream(symbol: str = Query(...), interval: str = Query(...)):
