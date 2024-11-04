@@ -1,7 +1,6 @@
 from fastapi import Query, APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from datetime import datetime
-from .consumer import async_kafka_consumer
 from .service import sse_event_generator, get_filtered_data
 import json
 import asyncio
@@ -17,25 +16,13 @@ router = APIRouter(
     tags=["stocks"],
 )
 
-# SSE 엔드포인트 (실시간 데이터 스트리밍)
+
 @router.get("/stream/{symbol}", response_class=StreamingResponse)
 async def sse_stream(symbol: str):
     topic = "real_time_stock_prices"
-    now_kst = datetime.now(KST)
+    now_kst = datetime.now()
     group_id = f"sse_consumer_group_{symbol}_{now_kst.strftime('%Y%m%d%H%M%S%f')}"
-    consumer = await async_kafka_consumer(topic, group_id)
-    return StreamingResponse(sse_event_generator(consumer), media_type="text/event-stream")
-
-# SSE 엔드포인트 (실시간 호가 데이터 스트리밍)
-@router.get("/orderBooks/{symbol}", response_class=StreamingResponse)
-async def sse_asking_stream(symbol: str):
-    logger.info(f"Received SSE order book stream request for symbol: {symbol}")
-    topic = "real_time_asking_prices"
-    now_kst = datetime.now(KST)
-    group_id = f"sse_asking_group_{symbol}_{now_kst.strftime('%Y%m%d%H%M%S%f')}"
-    consumer = await async_kafka_consumer(topic, group_id)
-    return StreamingResponse(sse_event_generator(consumer), media_type="text/event-stream")
-
+    return StreamingResponse(sse_event_generator(topic, group_id, symbol), media_type="text/event-stream")
 
 @router.get("/streamFilter", response_class=StreamingResponse)
 async def sse_filtered_stream(symbol: str = Query(...), interval: str = Query(...)):

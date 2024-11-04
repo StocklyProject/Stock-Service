@@ -11,6 +11,7 @@ from . import routes as stockDetails_routes
 from starlette.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pytz
+from .logger import logger
 
 # 기존 최신 데이터 및 거래량 누적 변수 설정
 latest_data = {}
@@ -63,23 +64,33 @@ async def store_historical_data():
     connection.close()
 
 
-# Kafka에서 최신 데이터를 수신하여 누적하는 비동기 함수
 async def fetch_latest_data():
     global latest_data, volume_accumulator
     consumer = AIOKafkaConsumer(
         'real_time_stock_prices',
-        # bootstrap_servers=['192.168.10.24:9094'],
-        bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
-        value_deserializer=lambda x: json.loads(x.decode('utf-8')),
-        group_id='stock_data_group'
+        bootstrap_servers=['192.168.0.54:9094'],
+        group_id='stock_data_group',
+        value_deserializer=lambda x: json.loads(x.decode('utf-8')) if x else None,
+        enable_auto_commit=True,
     )
 
     await consumer.start()
     try:
         async for message in consumer:
-            data = message.value
-            latest_data = data  # 최신 데이터로 업데이트
-            volume_accumulator += int(data['volume'])  # 거래량 누적
+            try:
+                data = json.loads(message.value)
+
+                # 데이터가 사전형인지 확인
+                if isinstance(data, dict):
+                    latest_data = data
+                    volume_accumulator += int(data.get('volume', 0))  # 거래량 누적
+                    logger.debug(f"Processed data: {latest_data}")
+                else:
+                    logger.error("Received non-dict data from Kafka after deserialization: %s", data)
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decode error: {e} - Raw message: {message.value}")
+            except Exception as e:
+                logger.error(f"Unexpected error processing message: {e} - Raw message: {message.value}")
     finally:
         await consumer.stop()
 
@@ -87,7 +98,7 @@ async def fetch_latest_data():
 # 매 1분마다 최신 데이터를 DB에 저장하고 거래량을 초기화하는 함수
 async def store_latest_data():
     global latest_data, volume_accumulator
-    if latest_data:
+    if isinstance(latest_data, dict):  # latest_data가 사전형인지 확인
         connection = get_db_connection()
         cursor = connection.cursor()
 
@@ -100,15 +111,15 @@ async def store_latest_data():
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         values = (
-            latest_data['symbol'],
+            latest_data.get('symbol'),
             now_kst,  # 한국 시간으로 저장
-            latest_data['open'],
-            latest_data['close'],
-            latest_data['high'],
-            latest_data['low'],
+            latest_data.get('open'),
+            latest_data.get('close'),
+            latest_data.get('high'),
+            latest_data.get('low'),
             volume_accumulator,  # 누적된 거래량 저장
-            latest_data['rate'],
-            latest_data['rate_price']
+            latest_data.get('rate'),
+            latest_data.get('rate_price')
         )
         cursor.execute(query, values)
         connection.commit()
@@ -117,7 +128,8 @@ async def store_latest_data():
 
         # 거래량 누적 변수 초기화
         volume_accumulator = 0
-
+    else:
+        logger.error("latest_data is not a dictionary, skipping store_latest_data execution")
 
 # lifespan 핸들러 설정
 @asynccontextmanager
@@ -140,7 +152,8 @@ async def lifespan(app: FastAPI):
 
 
 # FastAPI 앱 설정
-app = FastAPI(lifespan=lifespan)
+# app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 # 기존 코드 유지
 router = APIRouter(prefix="/api/v1")

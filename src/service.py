@@ -4,6 +4,7 @@ from .database import get_db_connection
 from datetime import datetime
 import pytz
 from .logger import logger
+from .consumer import async_kafka_consumer
 
 KST = pytz.timezone('Asia/Seoul')
 
@@ -61,16 +62,35 @@ async def get_filtered_data(symbol: str, interval: str, start_time=None):
     return formatted_rows
 
 # SSE 비동기 이벤트 생성기
-async def sse_event_generator(consumer):
-    logger.info("Starting SSE event generator")
+async def sse_event_generator(topic: str, group_id: str, symbol: str):
+    consumer = await async_kafka_consumer(topic, group_id)
     try:
-        while True:
-            message = await consumer.getone()  # 비동기로 메시지 하나를 가져옴
-            stock_data = message.value
-            logger.debug(f"Sending stock data to client: {stock_data}")
-            yield f"data: {json.dumps(stock_data)}\n\n"
-            await asyncio.sleep(0.5)  # 메시지 간의 대기
-    except Exception as e:
-        logger.error(f"Error in SSE generator: {e}")
+        async for message in consumer:
+            # 메시지의 값을 JSON으로 파싱
+            try:
+                data = json.loads(message.value) if isinstance(message.value, str) else message.value
+            except json.JSONDecodeError:
+                logger.error(f"Failed to decode message: {message.value}")
+                continue
+
+            # JSON으로 파싱된 데이터에서 symbol을 확인
+            if isinstance(data, dict) and data.get("symbol") == symbol:
+                yield f"data: {json.dumps(data)}\n\n"  # 클라이언트에 데이터 전송
+
+            await asyncio.sleep(0.5)  # 메시지 간 대기 시간 설정
+    except asyncio.CancelledError:
+        logger.info("Client disconnected, cancelling SSE generator.")
     finally:
         await consumer.stop()
+        logger.info(f"Kafka consumer stopped for topic '{topic}' with group ID '{group_id}'")
+
+
+
+# async def sse_batch_generator():
+#     buffer: List[dict] = []
+#     async for stock_data in consume_stock_data():
+#         buffer.append(stock_data)
+#         if len(buffer) >= 20:
+#             yield f"data: {json.dumps(buffer)}\n\n"
+#             buffer.clear()
+#         await asyncio.sleep(0.3)  # 조절 가능한 대기 시간
