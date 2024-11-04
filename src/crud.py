@@ -15,9 +15,9 @@ def get_symbols_for_page(page: int, page_size: int = 20) -> List[str]:
     """
     cursor.execute(query, (page_size, start_index))
     # 심볼만 리스트로 반환
-    symbols = [row[0] for row in cursor.fetchall()]
+    symbol = [row[0] for row in cursor.fetchall()]
 
     cursor.close()
     database.close()
 
-    return symbols
+    return symbol

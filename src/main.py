@@ -11,7 +11,6 @@ from . import routes as stockDetails_routes
 from starlette.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pytz
-from .logger import logger
 
 # 기존 최신 데이터 및 거래량 누적 변수 설정
 latest_data = {}
@@ -68,8 +67,8 @@ async def fetch_latest_data():
     global latest_data, volume_accumulator
     consumer = AIOKafkaConsumer(
         'real_time_stock_prices',
-        # bootstrap_servers=['192.168.0.54:9094'],
-        bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
+        bootstrap_servers=['192.168.0.54:9094'],
+        # bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
         group_id='stock_data_group',
         value_deserializer=lambda x: json.loads(x.decode('utf-8')) if x else None,
         enable_auto_commit=True,
@@ -85,13 +84,8 @@ async def fetch_latest_data():
                 if isinstance(data, dict):
                     latest_data = data
                     volume_accumulator += int(data.get('volume', 0))  # 거래량 누적
-                    logger.debug(f"Processed data: {latest_data}")
-                else:
-                    logger.error("Received non-dict data from Kafka after deserialization: %s", data)
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON decode error: {e} - Raw message: {message.value}")
             except Exception as e:
-                logger.error(f"Unexpected error processing message: {e} - Raw message: {message.value}")
+                pass
     finally:
         await consumer.stop()
 
@@ -130,7 +124,7 @@ async def store_latest_data():
         # 거래량 누적 변수 초기화
         volume_accumulator = 0
     else:
-        logger.error("latest_data is not a dictionary, skipping store_latest_data execution")
+        pass
 
 # lifespan 핸들러 설정
 @asynccontextmanager
@@ -153,8 +147,8 @@ async def lifespan(app: FastAPI):
 
 
 # FastAPI 앱 설정
-app = FastAPI(lifespan=lifespan)
-# app = FastAPI()
+# app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 # 기존 코드 유지
 router = APIRouter(prefix="/api/v1")

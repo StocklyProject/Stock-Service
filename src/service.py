@@ -3,9 +3,9 @@ import json
 from .database import get_db_connection
 from datetime import datetime
 import pytz
-from .logger import logger
 from .consumer import async_kafka_consumer
 from typing import List
+from .logger import logger
 
 KST = pytz.timezone('Asia/Seoul')
 
@@ -71,7 +71,6 @@ async def sse_event_generator(topic: str, group_id: str, symbol: str):
             try:
                 data = json.loads(message.value) if isinstance(message.value, str) else message.value
             except json.JSONDecodeError:
-                logger.error(f"Failed to decode message: {message.value}")
                 continue
 
             # JSON으로 파싱된 데이터에서 symbol을 확인
@@ -80,30 +79,59 @@ async def sse_event_generator(topic: str, group_id: str, symbol: str):
 
             await asyncio.sleep(0.5)  # 메시지 간 대기 시간 설정
     except asyncio.CancelledError:
-        logger.info("Client disconnected, cancelling SSE generator.")
+        pass
     finally:
         await consumer.stop()
-        logger.info(f"Kafka consumer stopped for topic '{topic}' with group ID '{group_id}'")
 
-async def sse_pagination_generator(topic: str, group_id: str, symbols: List[str]):
+async def sse_pagination_generator(topic: str, group_id: str, symbol: List[str]):
+    # Kafka Consumer 생성 및 시작 로그
+    logger.info(f"Kafka consumer 생성 - 그룹 ID: {group_id}")
     consumer = await async_kafka_consumer(topic, group_id)
+    logger.info(f"Kafka consumer 시작됨 - 그룹 ID: {group_id}")
+
+    # 테스트를 위해 symbol 리스트에서 첫 번째 심볼 선택
+    single_symbol = symbol[0] if symbol else None
+
+    # 데이터 버퍼링 및 전송 조건 설정
+    buffer = []  # 데이터를 임시 저장할 버퍼 리스트
+    batch_size = 20  # 한번에 전송할 데이터 개수
+    batch_interval = 5  # 데이터 전송 주기 (초)
+
     try:
+        last_send_time = datetime.now()  # 마지막 데이터 전송 시각 초기화
+        logger.info("Kafka 메시지 수신 대기 중...")
+
+        # Kafka 메시지 수신 루프
         async for message in consumer:
+            # 메시지를 JSON 형식으로 파싱
             try:
                 data = json.loads(message.value) if isinstance(message.value, str) else message.value
+                logger.debug(f"수신된 메시지 데이터: {data}")
             except json.JSONDecodeError:
-                logger.error(f"Failed to decode message: {message.value}")
+                logger.error(f"메시지 디코딩 실패 - 원본 메시지: {message.value}")
                 continue
 
-            # 여러 회사의 심볼이 포함된 메시지만 전송
-            if isinstance(data, dict) and data.get("symbol") in symbols:
-                yield f"data: {json.dumps(data)}\n\n"
+            # JSON 데이터에서 single_symbol과 일치하는지 확인하여 버퍼에 추가
+            if isinstance(data, dict) and data.get("symbol") == single_symbol:
+                buffer.append(data)
+                logger.info(f"버퍼에 추가된 데이터: {data}")
+
+            # 전송 조건: 버퍼 크기가 batch_size 이상이거나 batch_interval 경과
+            current_time = datetime.now()
+            if len(buffer) >= batch_size or (current_time - last_send_time).total_seconds() >= batch_interval:
+                if buffer:
+                    logger.info(f"데이터 전송 - 버퍼 크기: {len(buffer)}")
+                    yield f"data: {json.dumps(buffer)}\n\n"  # SSE 클라이언트로 데이터 전송
+                    buffer.clear()  # 버퍼 초기화
+                    last_send_time = current_time  # 전송 시각 업데이트
+
+            await asyncio.sleep(0.5)  # 메시지 간 대기 시간 설정
 
     except asyncio.CancelledError:
-        logger.info("Client disconnected, cancelling SSE generator.")
+        logger.info("클라이언트 연결 취소로 SSE 생성기 종료")
     finally:
         await consumer.stop()
-        logger.info(f"Kafka consumer stopped for topic '{topic}' with group ID '{group_id}'")
+        logger.info(f"Kafka consumer 중지 - 토픽: {topic}, 그룹 ID: {group_id}")
 
 
 # async def sse_batch_generator():

@@ -9,6 +9,7 @@ from datetime import timezone, timedelta
 from .database import get_db_connection
 from .crud import get_symbols_for_page
 from .logger import logger
+
 KST = pytz.timezone('Asia/Seoul')
 
 router = APIRouter(
@@ -21,7 +22,6 @@ async def sse_stream(symbol: str):
     topic = "real_time_stock_prices"
     now_kst = datetime.now()
     group_id = f"sse_consumer_group_{symbol}_{now_kst.strftime('%Y%m%d%H%M%S%f')}"
-    logger.info(group_id)
     return StreamingResponse(sse_event_generator(topic, group_id, symbol), media_type="text/event-stream")
 
 @router.get("/streamFilter", response_class=StreamingResponse)
@@ -134,6 +134,7 @@ async def get_historical_data_filtered(
 
     return results
 
+
 @router.get("/stream/multiple", response_class=StreamingResponse)
 async def sse_multiple_stream(page: int = Query(1, gt=0)):
     topic = "real_time_stock_prices"
@@ -141,7 +142,13 @@ async def sse_multiple_stream(page: int = Query(1, gt=0)):
     group_id = f"sse_consumer_group_multiple_{page}_{now_kst.strftime('%Y%m%d%H%M%S%f')}"
 
     # 페이지네이션에 따른 회사 심볼 리스트 가져오기
-    symbols = get_symbols_for_page(page, page_size=20)
+    symbol = get_symbols_for_page(page, page_size=20)
+    logger.info(f"SSE 스트림 응답 시작 - 그룹 ID: {group_id}, Symbol 리스트: {symbol}")
 
-    # SSE 이벤트 생성기에서 해당 symbol 목록으로 필터링하여 전송
-    return StreamingResponse(sse_pagination_generator(topic, group_id, symbols), media_type="text/event-stream")
+    # SSE 이벤트 생성기에서 해당 심볼 목록으로 필터링하여 전송
+    response = StreamingResponse(
+        sse_pagination_generator(topic, group_id, symbol),
+        media_type="text/event-stream"
+    )
+
+    return response

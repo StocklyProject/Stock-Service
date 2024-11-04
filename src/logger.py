@@ -2,7 +2,7 @@ import logging
 import colorlog
 
 logger = logging.getLogger('')
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 formatter = colorlog.ColoredFormatter(
     '%(log_color)s%(levelname)s:     커스텀 로그: %(message)s',

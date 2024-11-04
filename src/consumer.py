@@ -1,6 +1,5 @@
 from aiokafka import AIOKafkaConsumer
 import json
-from .logger import logger
 
 async def async_kafka_consumer(topic: str, group_id: str) -> AIOKafkaConsumer:
     consumer = AIOKafkaConsumer(
@@ -15,5 +14,4 @@ async def async_kafka_consumer(topic: str, group_id: str) -> AIOKafkaConsumer:
         value_deserializer=lambda x: json.loads(x.decode('utf-8')) if x else None
     )
     await consumer.start()
-    logger.info(f"Kafka consumer started for topic '{topic}' with group ID '{group_id}'")
     return consumer

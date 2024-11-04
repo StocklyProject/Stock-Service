@@ -19,9 +19,6 @@ def get_db_connection():
     password = os.getenv("MYSQL_PASSWORD")
     database = os.getenv("MYSQL_DATABASE")
 
-    # 디버깅용 출력
-    print(f"Connecting to MySQL with USER: {user}, PASSWORD: {password}, DATABASE: {database}")
-
     connection = mysql.connector.connect(
         # host="stockDB",
         host="mysql",
