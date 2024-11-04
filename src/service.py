@@ -5,6 +5,7 @@ from datetime import datetime
 import pytz
 from .logger import logger
 from .consumer import async_kafka_consumer
+from typing import List
 
 KST = pytz.timezone('Asia/Seoul')
 
@@ -84,6 +85,25 @@ async def sse_event_generator(topic: str, group_id: str, symbol: str):
         await consumer.stop()
         logger.info(f"Kafka consumer stopped for topic '{topic}' with group ID '{group_id}'")
 
+async def sse_pagination_generator(topic: str, group_id: str, symbols: List[str]):
+    consumer = await async_kafka_consumer(topic, group_id)
+    try:
+        async for message in consumer:
+            try:
+                data = json.loads(message.value) if isinstance(message.value, str) else message.value
+            except json.JSONDecodeError:
+                logger.error(f"Failed to decode message: {message.value}")
+                continue
+
+            # 여러 회사의 심볼이 포함된 메시지만 전송
+            if isinstance(data, dict) and data.get("symbol") in symbols:
+                yield f"data: {json.dumps(data)}\n\n"
+
+    except asyncio.CancelledError:
+        logger.info("Client disconnected, cancelling SSE generator.")
+    finally:
+        await consumer.stop()
+        logger.info(f"Kafka consumer stopped for topic '{topic}' with group ID '{group_id}'")
 
 
 # async def sse_batch_generator():

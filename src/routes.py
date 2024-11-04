@@ -1,14 +1,14 @@
 from fastapi import Query, APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from datetime import datetime
-from .service import sse_event_generator, get_filtered_data
+from .service import sse_event_generator, get_filtered_data, sse_pagination_generator
 import json
 import asyncio
 import pytz
 from datetime import timezone, timedelta
 from .database import get_db_connection
+from .crud import get_symbols_for_page
 from .logger import logger
-
 KST = pytz.timezone('Asia/Seoul')
 
 router = APIRouter(
@@ -16,12 +16,12 @@ router = APIRouter(
     tags=["stocks"],
 )
 
-
 @router.get("/stream/{symbol}", response_class=StreamingResponse)
 async def sse_stream(symbol: str):
     topic = "real_time_stock_prices"
     now_kst = datetime.now()
     group_id = f"sse_consumer_group_{symbol}_{now_kst.strftime('%Y%m%d%H%M%S%f')}"
+    logger.info(group_id)
     return StreamingResponse(sse_event_generator(topic, group_id, symbol), media_type="text/event-stream")
 
 @router.get("/streamFilter", response_class=StreamingResponse)
@@ -133,3 +133,15 @@ async def get_historical_data_filtered(
         raise HTTPException(status_code=404, detail="No data found for the given symbol and interval.")
 
     return results
+
+@router.get("/stream/multiple", response_class=StreamingResponse)
+async def sse_multiple_stream(page: int = Query(1, gt=0)):
+    topic = "real_time_stock_prices"
+    now_kst = datetime.now()
+    group_id = f"sse_consumer_group_multiple_{page}_{now_kst.strftime('%Y%m%d%H%M%S%f')}"
+
+    # 페이지네이션에 따른 회사 심볼 리스트 가져오기
+    symbols = get_symbols_for_page(page, page_size=20)
+
+    # SSE 이벤트 생성기에서 해당 symbol 목록으로 필터링하여 전송
+    return StreamingResponse(sse_pagination_generator(topic, group_id, symbols), media_type="text/event-stream")
