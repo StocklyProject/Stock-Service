@@ -152,8 +152,8 @@ async def lifespan(app: FastAPI):
 
 
 # FastAPI 앱 설정
-# app = FastAPI(lifespan=lifespan)
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
+# app = FastAPI()
 
 # 기존 코드 유지
 router = APIRouter(prefix="/api/v1")
