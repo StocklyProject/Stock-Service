@@ -23,7 +23,8 @@ def get_db_connection():
     print(f"Connecting to MySQL with USER: {user}, PASSWORD: {password}, DATABASE: {database}")
 
     connection = mysql.connector.connect(
-        host="stockDB",
+        # host="stockDB",
+        host="mysql",
         user=user,
         password=password,
         database=database
