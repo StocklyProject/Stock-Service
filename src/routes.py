@@ -1,13 +1,12 @@
 from fastapi import Query, APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from datetime import datetime
-from .service import sse_event_generator, get_filtered_data, sse_pagination_generator
+from .service import sse_event_generator, get_filtered_data
 import json
 import asyncio
 import pytz
 from datetime import timezone, timedelta
 from .database import get_db_connection
-from .crud import get_symbols_for_page
 from .logger import logger
 
 KST = pytz.timezone('Asia/Seoul')
@@ -134,21 +133,3 @@ async def get_historical_data_filtered(
 
     return results
 
-
-@router.get("/stream/multiple", response_class=StreamingResponse)
-async def sse_multiple_stream(page: int = Query(1, gt=0)):
-    topic = "real_time_stock_prices"
-    now_kst = datetime.now()
-    group_id = f"sse_consumer_group_multiple_{page}_{now_kst.strftime('%Y%m%d%H%M%S%f')}"
-
-    # 페이지네이션에 따른 회사 심볼 리스트 가져오기
-    symbol = get_symbols_for_page(page, page_size=20)
-    logger.info(f"SSE 스트림 응답 시작 - 그룹 ID: {group_id}, Symbol 리스트: {symbol}")
-
-    # SSE 이벤트 생성기에서 해당 심볼 목록으로 필터링하여 전송
-    response = StreamingResponse(
-        sse_pagination_generator(topic, group_id, symbol),
-        media_type="text/event-stream"
-    )
-
-    return response

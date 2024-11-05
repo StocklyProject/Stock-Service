@@ -86,7 +86,7 @@ async def sse_event_generator(topic: str, group_id: str, symbol: str):
 async def sse_pagination_generator(topic: str, group_id: str, symbol: List[str]):
     # Kafka Consumer 생성 및 시작 로그
     logger.info(f"Kafka consumer 생성 - 그룹 ID: {group_id}")
-    consumer = await async_kafka_consumer(topic, group_id)
+    consumer = async_kafka_consumer(topic, group_id)
     logger.info(f"Kafka consumer 시작됨 - 그룹 ID: {group_id}")
 
     # 테스트를 위해 symbol 리스트에서 첫 번째 심볼 선택
@@ -134,11 +134,3 @@ async def sse_pagination_generator(topic: str, group_id: str, symbol: List[str])
         logger.info(f"Kafka consumer 중지 - 토픽: {topic}, 그룹 ID: {group_id}")
 
 
-# async def sse_batch_generator():
-#     buffer: List[dict] = []
-#     async for stock_data in consume_stock_data():
-#         buffer.append(stock_data)
-#         if len(buffer) >= 20:
-#             yield f"data: {json.dumps(buffer)}\n\n"
-#             buffer.clear()
-#         await asyncio.sleep(0.3)  # 조절 가능한 대기 시간
