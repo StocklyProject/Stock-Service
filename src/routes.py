@@ -116,6 +116,7 @@ async def get_historical_data_filtered(
             AVG(rate_price) AS rate_price
         FROM stock
         WHERE symbol = %s
+            AND date < CURDATE() 
         GROUP BY symbol, {group_by_clause}
         ORDER BY MIN(date);
     """

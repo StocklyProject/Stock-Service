@@ -67,7 +67,7 @@ async def fetch_latest_data():
     global latest_data, volume_accumulator
     consumer = AIOKafkaConsumer(
         'real_time_stock_prices',
-        # bootstrap_servers=['192.168.0.15:9094'],
+        # bootstrap_servers=['192.168.10.26:9094'],
         bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
         group_id='stock_data_group',
         value_deserializer=lambda x: json.loads(x.decode('utf-8')) if x else None,
