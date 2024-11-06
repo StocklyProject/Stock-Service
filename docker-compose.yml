@@ -14,22 +14,7 @@ services:
     networks:
       - app-network
 
-  stockDB:
-    image: mysql:latest
-    ports:
-      - "3305:3306"
-    env_file:
-      - .env
-    volumes:
-      - db_data:/var/lib/mysql
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-      - ./my.cnf:/etc/mysql/conf.d/my.cnf
-    networks:
-      - app-network
-
 networks:
   app-network:
-    driver: bridge
+    external: true
 
-volumes:
-  db_data:
