@@ -19,10 +19,10 @@ KST = pytz.timezone('Asia/Seoul')
 
 # 20개 회사의 심볼 리스트 정의
 company_symbols = [
-    '005930.KS', '005935.KS', '000660.KS', '373220.KS', '005380.KS', '005389.KS',
-    '005385.KS', '005387.KS', '207940.KS', '000270.KS', '068270.KS', '051910.KS',
-    '005490.KS', '051915.KS', '035420.KS', '006400.KS', '006405.KS', '105560.KS',
-    '028260.KS', '012330.KS'
+    '005930.KS', '000660.KS', '373220.KS', '005380.KS', '207940.KS', '000270.KS',
+    '068270.KS', '051910.KS', '005490.KS', '035420.KS', '006400.KS', '105560.KS',
+    '028260.KS', '012330.KS', '055550.KS', '035720.KS', '003670.KS', '066570.KS',
+    '086790.KS', '032830.KS'
 ]
 
 # yfinance로 전체 과거 데이터를 수집하여 DB에 저장하는 함수
@@ -67,8 +67,8 @@ async def fetch_latest_data():
     global latest_data, volume_accumulator
     consumer = AIOKafkaConsumer(
         'real_time_stock_prices',
-        bootstrap_servers=['kafka:9092'],
-        # bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
+        # bootstrap_servers=['kafka:9092'],
+        bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
         group_id='stock_data_group',
         value_deserializer=lambda x: json.loads(x.decode('utf-8')) if x else None,
         enable_auto_commit=True,
