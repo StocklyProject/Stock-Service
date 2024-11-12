@@ -1,7 +1,7 @@
 from fastapi import Query, APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from datetime import datetime
-from .service import sse_event_generator, get_filtered_data, get_symbols_for_page, sse_pagination_generator
+from .service import sse_event_generator, get_filtered_data, get_symbols_for_page, sse_pagination_generator, get_latest_symbols_data
 import json
 import asyncio
 import pytz
@@ -142,3 +142,9 @@ async def sse_stream_multiple(page: int = Query(1)):
     topic = "real_time_stock_prices"
 
     return StreamingResponse(sse_pagination_generator(topic, group_id, symbols), media_type="text/event-stream")
+
+@router.get("/symbols")
+async def get_latest_symbols(page: int = Query(1)):
+    symbols = get_symbols_for_page(page)
+    latest_data = get_latest_symbols_data(symbols)
+    return latest_data

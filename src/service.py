@@ -6,6 +6,7 @@ from .consumer import async_kafka_consumer
 from typing import List
 from .logger import logger
 from datetime import datetime, timedelta
+from typing import List, Dict, Any
 
 
 KST = pytz.timezone('Asia/Seoul')
@@ -146,3 +147,37 @@ async def sse_pagination_generator(topic: str, group_id: str, symbols: List[str]
     finally:
         await consumer.stop()
         logger.info(f"Kafka consumer stopped - Group ID: {group_id}")
+
+
+def get_latest_symbols_data(symbols: List[str]) -> List[Dict[str, Any]]:
+    database = get_db_connection()
+    cursor = database.cursor(dictionary=True)
+
+    # Use a query to get the latest record for each symbol
+    query = """
+        SELECT s1.symbol, s1.high, s1.low, s1.volume, s1.date, s1.open, s1.close, s1.rate, s1.rate_price
+        FROM stock s1
+        INNER JOIN (
+            SELECT symbol, MAX(date) AS max_date
+            FROM stock
+            WHERE is_deleted = 0 AND symbol IN (%s)
+            GROUP BY symbol
+        ) s2 ON s1.symbol = s2.symbol AND s1.date = s2.max_date
+        WHERE s1.is_deleted = 0
+        ORDER BY s1.id ASC  -- Ensure the ordering by id
+        LIMIT 20            -- Limit to 20 records if needed
+    """
+    # Format query symbols for the IN clause
+    format_strings = ', '.join(['%s'] * len(symbols))
+    query = query % format_strings
+
+    # Execute the query with symbols as parameters
+    cursor.execute(query, symbols)
+
+    # Fetch results and format them as a list of dictionaries
+    latest_data = cursor.fetchall()
+
+    cursor.close()
+    database.close()
+
+    return latest_data
