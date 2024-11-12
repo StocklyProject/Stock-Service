@@ -9,21 +9,6 @@ services:
       - "8001:8001"
     env_file:
       - .env
-    depends_on:
-      - stockDB
-    networks:
-      - app-network
-
-  stockDB:
-    image: mysql:latest
-    ports:
-      - "3307:3307"
-    env_file:
-      - .env  # 동일한 환경 변수 파일을 사용
-    volumes:
-      - db_data:/var/lib/mysql
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-      - ./my.cnf:/etc/mysql/conf.d/my.cnf
     networks:
       - app-network
 
@@ -31,6 +16,4 @@ networks:
   app-network:
     external: true
 
-volumes:
-  db_data:
 

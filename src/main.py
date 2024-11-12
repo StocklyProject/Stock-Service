@@ -11,6 +11,7 @@ from . import routes as stockDetails_routes
 from starlette.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pytz
+from .service import get_symbols_for_page
 
 # 기존 최신 데이터 및 거래량 누적 변수 설정
 latest_data = {}
@@ -53,8 +54,16 @@ async def store_historical_data():
 
             # 데이터베이스에 삽입
             query = """
-            INSERT INTO stock (symbol, date, open, close, high, low, volume, rate_price, rate)
+            INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                open = VALUES(open),
+                close = VALUES(close),
+                high = VALUES(high),
+                low = VALUES(low),
+                volume = VALUES(volume),
+                rate = VALUES(rate),
+                rate_price = VALUES(rate_price)
             """
             cursor.execute(query, values)
 
@@ -63,13 +72,20 @@ async def store_historical_data():
     connection.close()
 
 
-async def fetch_latest_data():
+async def fetch_latest_data(page: int = 1):
     global latest_data, volume_accumulator
+
+    # 페이지별로 심볼 리스트를 가져옴
+    symbols = get_symbols_for_page(page)
+    # 페이지 심볼 리스트로 `latest_data`와 `volume_accumulator` 초기화
+    latest_data = {symbol: {} for symbol in symbols}
+    volume_accumulator = {symbol: 0 for symbol in symbols}
+
     consumer = AIOKafkaConsumer(
         'real_time_stock_prices',
         # bootstrap_servers=['kafka:9092'],
         bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
-        group_id='stock_data_group',
+        group_id=f'stock_data_group_page_{page}',
         value_deserializer=lambda x: json.loads(x.decode('utf-8')) if x else None,
         enable_auto_commit=True,
     )
@@ -80,10 +96,12 @@ async def fetch_latest_data():
             try:
                 data = json.loads(message.value)
 
-                # 데이터가 사전형인지 확인
+                # 데이터가 사전형인지 확인하고 심볼별로 최신 데이터 및 거래량 누적
                 if isinstance(data, dict):
-                    latest_data = data
-                    volume_accumulator += int(data.get('volume', 0))  # 거래량 누적
+                    symbol = data.get('symbol')
+                    if symbol in symbols:
+                        latest_data[symbol] = data  # 각 심볼의 최신 데이터 저장
+                        volume_accumulator[symbol] += int(data.get('volume', 0))  # 각 심볼별로 거래량 누적
             except Exception as e:
                 pass
     finally:
@@ -91,40 +109,50 @@ async def fetch_latest_data():
 
 
 # 매 1분마다 최신 데이터를 DB에 저장하고 거래량을 초기화하는 함수
-async def store_latest_data():
+async def store_latest_data(page: int = 1):
     global latest_data, volume_accumulator
-    if isinstance(latest_data, dict):  # latest_data가 사전형인지 확인
-        connection = get_db_connection()
-        cursor = connection.cursor()
+    connection = get_db_connection()
+    cursor = connection.cursor()
 
-        # 한국 시간으로 현재 시간 설정
-        now_kst = datetime.now(KST)
+    # 페이지별 심볼 리스트를 가져옴
+    symbols = get_symbols_for_page(page)
+    now_kst = datetime.now(KST)  # 한국 시간으로 현재 시간 설정
 
-        # DB에 데이터 저장 쿼리
-        query = """
-        INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        values = (
-            latest_data.get('symbol'),
-            now_kst,  # 한국 시간으로 저장
-            latest_data.get('open'),
-            latest_data.get('close'),
-            latest_data.get('high'),
-            latest_data.get('low'),
-            volume_accumulator,  # 누적된 거래량 저장
-            latest_data.get('rate'),
-            latest_data.get('rate_price')
-        )
-        cursor.execute(query, values)
-        connection.commit()
-        cursor.close()
-        connection.close()
+    for symbol in symbols:
+        data = latest_data.get(symbol, {})
+        if data:  # 데이터가 있는 심볼만 저장
+            values = (
+                data.get('symbol'),
+                now_kst,  # 한국 시간으로 저장
+                data.get('open'),
+                data.get('close'),
+                data.get('high'),
+                data.get('low'),
+                volume_accumulator[symbol],  # 심볼별 누적된 거래량 저장
+                data.get('rate'),
+                data.get('rate_price')
+            )
+            # DB에 데이터 저장 쿼리
+            query = """
+            INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                open = VALUES(open),
+                close = VALUES(close),
+                high = VALUES(high),
+                low = VALUES(low),
+                volume = VALUES(volume),
+                rate = VALUES(rate),
+                rate_price = VALUES(rate_price)
+            """
+            cursor.execute(query, values)
 
-        # 거래량 누적 변수 초기화
-        volume_accumulator = 0
-    else:
-        pass
+            # 각 심볼의 거래량 누적 초기화
+            volume_accumulator[symbol] = 0
+
+    connection.commit()
+    cursor.close()
+    connection.close()
 
 # lifespan 핸들러 설정
 @asynccontextmanager
