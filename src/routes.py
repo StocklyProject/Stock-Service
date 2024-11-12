@@ -1,12 +1,13 @@
 from fastapi import Query, APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from datetime import datetime
-from .service import sse_event_generator, get_filtered_data
+from .service import sse_event_generator, get_filtered_data, get_symbols_for_page, sse_pagination_generator
 import json
 import asyncio
 import pytz
 from datetime import timezone, timedelta
 from .database import get_db_connection
+from aiokafka import AIOKafkaConsumer
 from .logger import logger
 
 KST = pytz.timezone('Asia/Seoul')
@@ -16,14 +17,14 @@ router = APIRouter(
     tags=["stocks"],
 )
 
-@router.get("/stream/{symbol}", response_class=StreamingResponse)
+@router.get("/sse/stream/{symbol}", response_class=StreamingResponse)
 async def sse_stream(symbol: str):
     topic = "real_time_stock_prices"
     now_kst = datetime.now()
     group_id = f"sse_consumer_group_{symbol}_{now_kst.strftime('%Y%m%d%H%M%S%f')}"
     return StreamingResponse(sse_event_generator(topic, group_id, symbol), media_type="text/event-stream")
 
-@router.get("/streamFilter", response_class=StreamingResponse)
+@router.get("/sse/streamFilter", response_class=StreamingResponse)
 async def sse_filtered_stream(symbol: str = Query(...), interval: str = Query(...)):
     async def filtered_event_generator():
         # 초기 데이터 전송 (당일 0시 기준으로 전체 데이터를 가져옴)
@@ -134,3 +135,10 @@ async def get_historical_data_filtered(
 
     return results
 
+@router.get("/sse/stream/multiple/symbols", response_class=StreamingResponse)
+async def sse_stream_multiple(page: int = Query(1)):
+    symbols = get_symbols_for_page(page)
+    group_id = f"sse_consumer_group_page_{page}"
+    topic = "real_time_stock_prices"
+
+    return StreamingResponse(sse_pagination_generator(topic, group_id, symbols), media_type="text/event-stream")
