@@ -11,9 +11,9 @@ async def async_kafka_consumer(topic: str, group_id: str):
         group_id=group_id,
         auto_offset_reset='latest',
         enable_auto_commit=True,
-        max_poll_interval_ms=300000,
-        session_timeout_ms=45000,
-        heartbeat_interval_ms=10000,
+        max_poll_interval_ms=600000,
+        session_timeout_ms=60000,
+        heartbeat_interval_ms = 5000,
         value_deserializer=lambda x: json.loads(x.decode('utf-8')) if x else None
     )
     try:
