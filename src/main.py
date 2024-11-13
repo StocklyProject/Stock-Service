@@ -40,6 +40,8 @@ async def store_historical_data():
 
         for date, row in data.iterrows():
             date_kst = date.to_pydatetime().astimezone(KST)
+            trading_value = int(row['Volume']) * int(row['Close'])
+
             values = (
                 clean_symbol,  # `.KS`를 제거한 심볼을 사용
                 date_kst,
@@ -49,13 +51,14 @@ async def store_historical_data():
                 int(row['Low']),
                 int(row['Volume']),
                 row['Close'] - row['Open'],  # rate_price
-                round((row['Close'] - row['Open']) / row['Open'] * 100, 2) if row['Open'] else 0.0  # rate
+                round((row['Close'] - row['Open']) / row['Open'] * 100, 2) if row['Open'] else 0.0,
+                int(row['Volume'])*int(row['Close'])
             )
 
             # 데이터베이스에 삽입
             query = """
-            INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price, trading_value)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 open = VALUES(open),
                 close = VALUES(close),
@@ -63,7 +66,8 @@ async def store_historical_data():
                 low = VALUES(low),
                 volume = VALUES(volume),
                 rate = VALUES(rate),
-                rate_price = VALUES(rate_price)
+                rate_price = VALUES(rate_price),
+                trading_value = VALUES(trading_value)
             """
             cursor.execute(query, values)
 
@@ -130,11 +134,12 @@ async def store_latest_data(page: int = 1):
                 data.get('low'),
                 volume_accumulator[symbol],  # 심볼별 누적된 거래량 저장
                 data.get('rate'),
-                data.get('rate_price')
+                data.get('rate_price'),
+                data.get('trading_value')
             )
             # DB에 데이터 저장 쿼리
             query = """
-            INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price)
+            INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price, trading_value)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 open = VALUES(open),
@@ -144,6 +149,7 @@ async def store_latest_data(page: int = 1):
                 volume = VALUES(volume),
                 rate = VALUES(rate),
                 rate_price = VALUES(rate_price)
+                trading_value = VALUES(trading_value)
             """
             cursor.execute(query, values)
 
