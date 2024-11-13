@@ -155,7 +155,7 @@ def get_latest_symbols_data(symbols: List[str]) -> List[Dict[str, Any]]:
 
     # Use a query to get the latest record for each symbol
     query = """
-        SELECT s1.symbol, s1.high, s1.low, s1.volume, s1.date, s1.open, s1.close, s1.rate, s1.rate_price
+        SELECT s1.symbol, s1.high, s1.low, s1.volume, s1.date, s1.open, s1.close, s1.rate, s1.rate_price, s1.trading_value
         FROM stock s1
         INNER JOIN (
             SELECT symbol, MAX(date) AS max_date

@@ -26,52 +26,63 @@ company_symbols = [
     '086790.KS', '032830.KS'
 ]
 
+
 # yfinance로 전체 과거 데이터를 수집하여 DB에 저장하는 함수
 async def store_historical_data():
-    connection = get_db_connection()
+    # 비동기에서 동기 연결을 호출하는 작업 설정
+    loop = asyncio.get_event_loop()
+    
+    # 데이터베이스 연결 및 커서 생성
+    connection = await loop.run_in_executor(None, get_db_connection)
     cursor = connection.cursor()
-
+    
     for symbol in company_symbols:
         stock = yf.Ticker(symbol)
         data = stock.history(period="max")  # 존재하는 전체 데이터를 수집
-
+    
         # `.KS`를 제거한 심볼 생성
         clean_symbol = symbol.replace(".KS", "")
-
+    
+        # 각 날짜별로 데이터 처리
         for date, row in data.iterrows():
             date_kst = date.to_pydatetime().astimezone(KST)
             trading_value = int(row['Volume']) * int(row['Close'])
-
+    
+            # rate_price와 rate 계산
+            rate_price = int(row['Close']) - int(row['Open'])  # 가격 차이 (int)
+            rate = round((rate_price / row['Open']) * 100, 2) if row['Open'] else 0.0  # 퍼센트 변화율 (double)
+    
             values = (
-                clean_symbol,  # `.KS`를 제거한 심볼을 사용
+                clean_symbol,
                 date_kst,
                 int(row['Open']),
                 int(row['Close']),
                 int(row['High']),
                 int(row['Low']),
                 int(row['Volume']),
-                row['Close'] - row['Open'],  # rate_price
-                round((row['Close'] - row['Open']) / row['Open'] * 100, 2) if row['Open'] else 0.0,
-                int(row['Volume'])*int(row['Close'])
+                rate,          # 수정된 rate (double)
+                rate_price,    # 수정된 rate_price (int)
+                trading_value
             )
-
+    
             # 데이터베이스에 삽입
             query = """
-            INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price, trading_value)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-                open = VALUES(open),
-                close = VALUES(close),
-                high = VALUES(high),
-                low = VALUES(low),
-                volume = VALUES(volume),
-                rate = VALUES(rate),
-                rate_price = VALUES(rate_price),
-                trading_value = VALUES(trading_value)
+                INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price, trading_value)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    open = VALUES(open),
+                    close = VALUES(close),
+                    high = VALUES(high),
+                    low = VALUES(low),
+                    volume = VALUES(volume),
+                    rate = VALUES(rate),
+                    rate_price = VALUES(rate_price),
+                    trading_value = VALUES(trading_value)
             """
-            cursor.execute(query, values)
-
-    connection.commit()
+            await loop.run_in_executor(None, cursor.execute, query, values)
+    
+    # 모든 데이터가 처리된 후 커밋
+    await loop.run_in_executor(None, connection.commit)
     cursor.close()
     connection.close()
 
@@ -140,7 +151,7 @@ async def store_latest_data(page: int = 1):
             # DB에 데이터 저장 쿼리
             query = """
             INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price, trading_value)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 open = VALUES(open),
                 close = VALUES(close),
@@ -148,7 +159,7 @@ async def store_latest_data(page: int = 1):
                 low = VALUES(low),
                 volume = VALUES(volume),
                 rate = VALUES(rate),
-                rate_price = VALUES(rate_price)
+                rate_price = VALUES(rate_price),
                 trading_value = VALUES(trading_value)
             """
             cursor.execute(query, values)
