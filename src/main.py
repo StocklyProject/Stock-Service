@@ -136,18 +136,29 @@ async def store_latest_data(page: int = 1):
     for symbol in symbols:
         data = latest_data.get(symbol, {})
         if data:  # 데이터가 있는 심볼만 저장
+            # 1분 동안 누적된 거래량 가져오기
+            accumulated_volume = volume_accumulator.get(symbol, 0)
+
+            # close_price와 volume을 float 또는 int로 변환
+            close_price = float(data.get('close') or 0)  # close가 없을 경우 기본값 0
+            accumulated_volume = int(accumulated_volume)
+
+            # trading_value 계산
+            trading_value = close_price * accumulated_volume
+
             values = (
                 data.get('symbol'),
                 now_kst,  # 한국 시간으로 저장
-                data.get('open'),
-                data.get('close'),
-                data.get('high'),
-                data.get('low'),
-                volume_accumulator[symbol],  # 심볼별 누적된 거래량 저장
-                data.get('rate'),
-                data.get('rate_price'),
-                data.get('trading_value')
+                float(data.get('open') or 0),
+                close_price,
+                float(data.get('high') or 0),
+                float(data.get('low') or 0),
+                accumulated_volume,  # 1분 동안 누적된 거래량 저장
+                float(data.get('rate') or 0),
+                float(data.get('rate_price') or 0),
+                trading_value  # 누적 거래량과 close를 곱한 값
             )
+
             # DB에 데이터 저장 쿼리
             query = """
             INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price, trading_value)

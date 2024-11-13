@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS stock (
     close INT,
     rate DOUBLE,
     rate_price INT,
-    trading_value BIGINT
+    trading_value DECIMAL(20, 2)
 );
 
 CREATE TABLE IF NOT EXISTS user (
