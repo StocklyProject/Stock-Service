@@ -6,7 +6,7 @@ from .consumer import async_kafka_consumer
 from typing import List
 from .logger import logger
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 
 KST = pytz.timezone('Asia/Seoul')
