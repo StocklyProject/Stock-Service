@@ -17,12 +17,24 @@ router = APIRouter(
     tags=["stocks"],
 )
 
+# @router.get("/sse/stream/{symbol}", response_class=StreamingResponse)
+# async def sse_stream(symbol: str):
+#     topic = "real_time_stock_prices"
+#     now_kst = datetime.now()
+#     group_id = f"sse_consumer_group_{symbol}_{now_kst.strftime('%Y%m%d%H%M%S%f')}"
+#     return StreamingResponse(sse_event_generator(topic, group_id, symbol), media_type="text/event-stream")
+
 @router.get("/sse/stream/{symbol}", response_class=StreamingResponse)
 async def sse_stream(symbol: str):
     topic = "real_time_stock_prices"
-    now_kst = datetime.now()
+    now_kst = datetime.now(pytz.timezone("Asia/Seoul"))  # 현재 KST 시간으로 설정
     group_id = f"sse_consumer_group_{symbol}_{now_kst.strftime('%Y%m%d%H%M%S%f')}"
-    return StreamingResponse(sse_event_generator(topic, group_id, symbol), media_type="text/event-stream")
+    
+    # `start_time`으로 `now_kst`를 전달하여 요청 시간 이후의 데이터만 전송
+    return StreamingResponse(
+        sse_event_generator(topic, group_id, symbol, start_time=now_kst),
+        media_type="text/event-stream"
+    )
 
 @router.get("/sse/streamFilter", response_class=StreamingResponse)
 async def sse_filtered_stream(symbol: str = Query(...), interval: str = Query(...)):

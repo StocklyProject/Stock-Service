@@ -67,8 +67,34 @@ async def get_filtered_data(symbol: str, interval: str, start_time=None):
     return formatted_rows
 
 # SSE 비동기 이벤트 생성기
-async def sse_event_generator(topic: str, group_id: str, symbol: str):
+# async def sse_event_generator(topic: str, group_id: str, symbol: str):
+#     consumer = await async_kafka_consumer(topic, group_id)
+#     try:
+#         async for message in consumer:
+#             # 메시지의 값을 JSON으로 파싱
+#             try:
+#                 data = json.loads(message.value) if isinstance(message.value, str) else message.value
+#             except json.JSONDecodeError:
+#                 continue
+
+#             # JSON으로 파싱된 데이터에서 symbol을 확인
+#             if isinstance(data, dict) and data.get("symbol") == symbol:
+#                 yield f"data: {json.dumps(data)}\n\n"  # 클라이언트에 데이터 전송
+#             #
+#             # await asyncio.sleep(0.1)  # 메시지 간 대기 시간 설정
+#     except asyncio.CancelledError:
+#         # 클라이언트 연결이 끊겼을 때 발생
+#         print(f"Client disconnected from stream for symbol: {symbol}")
+#     finally:
+#         await consumer.stop()  # 스트리밍 종료 시 Kafka 소비자 종료
+#         print(f"Stream for {symbol} stopped.")
+
+async def sse_event_generator(topic: str, group_id: str, symbol: str, start_time: Optional[datetime] = None):
+    """
+    특정 시간(start_time) 이후의 데이터만 SSE로 전송하는 이벤트 생성기.
+    """
     consumer = await async_kafka_consumer(topic, group_id)
+    
     try:
         async for message in consumer:
             # 메시지의 값을 JSON으로 파싱
@@ -76,18 +102,21 @@ async def sse_event_generator(topic: str, group_id: str, symbol: str):
                 data = json.loads(message.value) if isinstance(message.value, str) else message.value
             except json.JSONDecodeError:
                 continue
-
-            # JSON으로 파싱된 데이터에서 symbol을 확인
+            
+            # JSON으로 파싱된 데이터에서 symbol과 date를 확인
             if isinstance(data, dict) and data.get("symbol") == symbol:
-                yield f"data: {json.dumps(data)}\n\n"  # 클라이언트에 데이터 전송
-            #
-            # await asyncio.sleep(0.1)  # 메시지 간 대기 시간 설정
+                # 데이터의 날짜를 파싱하여 start_time 이후의 데이터인지 확인
+                data_time = datetime.strptime(data["date"], "%Y-%m-%d %H:%M:%S")
+                if start_time is None or data_time > start_time:
+                    yield f"data: {json.dumps(data)}\n\n"  # 클라이언트에 데이터 전송
+
+            await asyncio.sleep(0.1)
+    
     except asyncio.CancelledError:
-        # 클라이언트 연결이 끊겼을 때 발생
-        print(f"Client disconnected from stream for symbol: {symbol}")
+        logger.info(f"Client disconnected from stream for symbol: {symbol}")
     finally:
-        await consumer.stop()  # 스트리밍 종료 시 Kafka 소비자 종료
-        print(f"Stream for {symbol} stopped.")
+        await consumer.stop()
+        logger.info(f"Stream for {symbol} stopped.")
 
 
 def get_symbols_for_page(page: int, page_size: int = 20) -> List[str]:
