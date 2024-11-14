@@ -92,9 +92,11 @@ async def get_filtered_data(symbol: str, interval: str, start_time=None):
 async def sse_event_generator(topic: str, group_id: str, symbol: str, start_time: datetime):
     consumer = await async_kafka_consumer(topic, group_id)
     
+    # KST 타임존 설정
+    kst = pytz.timezone("Asia/Seoul")
+    
     try:
         async for message in consumer:
-            # 메시지의 값을 JSON으로 파싱
             try:
                 data = json.loads(message.value) if isinstance(message.value, str) else message.value
             except json.JSONDecodeError:
@@ -103,13 +105,13 @@ async def sse_event_generator(topic: str, group_id: str, symbol: str, start_time
             if isinstance(data, dict) and data.get("symbol") == symbol:
                 # date 필드가 간략한 시간 형식(HHMMSS)인 경우 처리
                 if len(data["date"]) == 6:  # HHMMSS 형식인지 확인
-                    # 오늘의 날짜와 결합하여 완전한 형식으로 변환
-                    today_date = datetime.now().strftime("%Y-%m-%d")
+                    today_date = datetime.now(kst).strftime("%Y-%m-%d")  # KST 시간으로 현재 날짜 가져오기
                     data_time_str = f"{today_date} {data['date'][:2]}:{data['date'][2:4]}:{data['date'][4:]}"
                     data_time = datetime.strptime(data_time_str, "%Y-%m-%d %H:%M:%S")
+                    data_time = kst.localize(data_time)  # data_time을 KST 시간대의 offset-aware datetime으로 변환
                 else:
-                    # 기존 형식(%Y-%m-%d %H:%M:%S) 그대로 파싱
                     data_time = datetime.strptime(data["date"], "%Y-%m-%d %H:%M:%S")
+                    data_time = kst.localize(data_time)  # data_time을 KST 시간대의 offset-aware datetime으로 변환
 
                 # start_time 이후의 데이터만 SSE로 전송
                 if data_time > start_time:
