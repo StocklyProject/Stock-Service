@@ -6,7 +6,7 @@ from .consumer import async_kafka_consumer
 from typing import List
 from .logger import logger
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 
 KST = pytz.timezone('Asia/Seoul')
@@ -89,10 +89,7 @@ async def get_filtered_data(symbol: str, interval: str, start_time=None):
 #         await consumer.stop()  # 스트리밍 종료 시 Kafka 소비자 종료
 #         print(f"Stream for {symbol} stopped.")
 
-async def sse_event_generator(topic: str, group_id: str, symbol: str, start_time: Optional[datetime] = None):
-    """
-    특정 시간(start_time) 이후의 데이터만 SSE로 전송하는 이벤트 생성기.
-    """
+async def sse_event_generator(topic: str, group_id: str, symbol: str, start_time: datetime):
     consumer = await async_kafka_consumer(topic, group_id)
     
     try:
@@ -103,11 +100,19 @@ async def sse_event_generator(topic: str, group_id: str, symbol: str, start_time
             except json.JSONDecodeError:
                 continue
             
-            # JSON으로 파싱된 데이터에서 symbol과 date를 확인
             if isinstance(data, dict) and data.get("symbol") == symbol:
-                # 데이터의 날짜를 파싱하여 start_time 이후의 데이터인지 확인
-                data_time = datetime.strptime(data["date"], "%Y-%m-%d %H:%M:%S")
-                if start_time is None or data_time > start_time:
+                # date 필드가 간략한 시간 형식(HHMMSS)인 경우 처리
+                if len(data["date"]) == 6:  # HHMMSS 형식인지 확인
+                    # 오늘의 날짜와 결합하여 완전한 형식으로 변환
+                    today_date = datetime.now().strftime("%Y-%m-%d")
+                    data_time_str = f"{today_date} {data['date'][:2]}:{data['date'][2:4]}:{data['date'][4:]}"
+                    data_time = datetime.strptime(data_time_str, "%Y-%m-%d %H:%M:%S")
+                else:
+                    # 기존 형식(%Y-%m-%d %H:%M:%S) 그대로 파싱
+                    data_time = datetime.strptime(data["date"], "%Y-%m-%d %H:%M:%S")
+
+                # start_time 이후의 데이터만 SSE로 전송
+                if data_time > start_time:
                     yield f"data: {json.dumps(data)}\n\n"  # 클라이언트에 데이터 전송
 
             await asyncio.sleep(0.1)
@@ -117,7 +122,6 @@ async def sse_event_generator(topic: str, group_id: str, symbol: str, start_time
     finally:
         await consumer.stop()
         logger.info(f"Stream for {symbol} stopped.")
-
 
 def get_symbols_for_page(page: int, page_size: int = 20) -> List[str]:
     start_index = (page - 1) * page_size
