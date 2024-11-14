@@ -23,7 +23,8 @@ def format_data(row):
         "low": str(row["low"]),
         "rate_price": f"{int(row.get('rate_price', 0))}" if row.get('rate_price', 0) < 0 else f"+{int(row.get('rate_price', 0))}",
         "rate": f"{row.get('rate', 0.0)}" if row.get('rate', 0.0) < 0 else f"+{row.get('rate', 0.0)}",
-        "volume": str(row["volume"])
+        "volume": str(row["volume"]),
+        "trading_value": str(row["trading_value"])
     }
 
 async def get_filtered_data(symbol: str, interval: str, start_time=None):
@@ -50,6 +51,7 @@ async def get_filtered_data(symbol: str, interval: str, start_time=None):
             AVG(rate) AS rate,
             AVG(rate_price) AS rate_price,
             {group_by} AS date_group,
+            SUM(trading_value) AS trading_value,
             MAX(created_at) AS last_created
         FROM stock
         WHERE symbol = %s AND created_at >= %s
