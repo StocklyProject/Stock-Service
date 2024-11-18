@@ -125,16 +125,19 @@ async def sse_pagination_generator(topic: str, group_id: str, symbols: List[str]
     try:
         async for message in consumer:
             try:
-                data = json.loads(message.value)
+                # 메시지가 이미 dict인지 확인
+                data = message.value if isinstance(message.value, dict) else json.loads(message.value)
             except json.JSONDecodeError:
                 logger.warning("Failed to decode message")
                 continue
 
+            # 심볼별 데이터 업데이트
             symbol = data.get("symbol")
             if symbol in symbol_data_dict:
                 symbol_data_dict[symbol] = data
                 logger.debug(f"Updated data for symbol {symbol}")
 
+            # 1초마다 데이터 번들링 및 전송
             current_time = datetime.now()
             if (current_time - last_send_time) >= timedelta(seconds=1):
                 bundled_data = json.dumps([data for data in symbol_data_dict.values() if data is not None])
