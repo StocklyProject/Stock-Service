@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from aiokafka import AIOKafkaConsumer
-from .database import get_db_connection
+from .database import get_db_connection, get_db_connection_async
 from datetime import datetime
 import asyncio
 from . import routes as stockDetails_routes
@@ -21,64 +21,50 @@ KST = pytz.timezone('Asia/Seoul')
 # 20개 회사의 심볼 리스트 정의
 company_symbols =['005930.KS', '003550.KS'] # ['삼성전자', 'LG']
 
-# yfinance로 전체 과거 데이터를 수집하여 DB에 저장하는 함수
-async def store_historical_data():
-    # 비동기에서 동기 연결을 호출하는 작업 설정
+async def download_stock_data(symbol):
     loop = asyncio.get_event_loop()
-    
-    # 데이터베이스 연결 및 커서 생성
-    connection = await loop.run_in_executor(None, get_db_connection)
-    cursor = connection.cursor()
-    
-    for symbol in company_symbols:
-        stock = yf.Ticker(symbol)
-        data = stock.history(period="max")  # 존재하는 전체 데이터를 수집
-    
-        # `.KS`를 제거한 심볼 생성
-        clean_symbol = symbol.replace(".KS", "")
-    
-        # 각 날짜별로 데이터 처리
-        for date, row in data.iterrows():
-            date_kst = date.to_pydatetime().astimezone(KST)
-            trading_value = int(row['Volume']) * int(row['Close'])
-    
-            # rate_price와 rate 계산
-            rate_price = int(row['Close']) - int(row['Open'])  # 가격 차이 (int)
-            rate = round((rate_price / row['Open']) * 100, 2) if row['Open'] else 0.0  # 퍼센트 변화율 (double)
-    
-            values = (
-                clean_symbol,
-                date_kst,
-                int(row['Open']),
-                int(row['Close']),
-                int(row['High']),
-                int(row['Low']),
-                int(row['Volume']),
-                rate,          # 수정된 rate (double)
-                rate_price,    # 수정된 rate_price (int)
-                trading_value
-            )
-    
-            # 데이터베이스에 삽입
-            query = """
-                INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price, trading_value)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    open = VALUES(open),
-                    close = VALUES(close),
-                    high = VALUES(high),
-                    low = VALUES(low),
-                    volume = VALUES(volume),
-                    rate = VALUES(rate),
-                    rate_price = VALUES(rate_price),
-                    trading_value = VALUES(trading_value)
-            """
-            await loop.run_in_executor(None, cursor.execute, query, values)
-    
-    # 모든 데이터가 처리된 후 커밋
-    await loop.run_in_executor(None, connection.commit)
-    cursor.close()
-    connection.close()
+    stock = await loop.run_in_executor(None, yf.Ticker, symbol)
+    data = await loop.run_in_executor(None, stock.history, "max")
+    return data
+
+async def store_historical_data():
+    async with await get_db_connection_async() as connection:
+        async with connection.cursor() as cursor:
+            for symbol in company_symbols:
+                data = await download_stock_data(symbol)
+                clean_symbol = symbol.replace(".KS", "")
+                for date, row in data.iterrows():
+                    date_kst = date.to_pydatetime().astimezone(KST)
+                    trading_value = int(row['Volume']) * int(row['Close'])
+                    rate_price = int(row['Close']) - int(row['Open'])
+                    rate = round((rate_price / row['Open']) * 100, 2) if row['Open'] else 0.0
+                    values = (
+                        clean_symbol,
+                        date_kst,
+                        int(row['Open']),
+                        int(row['Close']),
+                        int(row['High']),
+                        int(row['Low']),
+                        int(row['Volume']),
+                        rate,
+                        rate_price,
+                        trading_value,
+                    )
+                    query = """
+                        INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price, trading_value)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON DUPLICATE KEY UPDATE
+                            open = VALUES(open),
+                            close = VALUES(close),
+                            high = VALUES(high),
+                            low = VALUES(low),
+                            volume = VALUES(volume),
+                            rate = VALUES(rate),
+                            rate_price = VALUES(rate_price),
+                            trading_value = VALUES(trading_value)
+                    """
+                    await cursor.execute(query, values)
+                await connection.commit()
 
 
 async def fetch_latest_data(page: int = 1):
@@ -118,64 +104,63 @@ async def fetch_latest_data(page: int = 1):
         await consumer.stop()
 
 
-# 매 1분마다 최신 데이터를 DB에 저장하고 거래량을 초기화하는 함수
 async def store_latest_data(page: int = 1):
     global latest_data, volume_accumulator
-    connection = get_db_connection()
-    cursor = connection.cursor()
 
-    # 페이지별 심볼 리스트를 가져옴
-    symbols = get_symbols_for_page(page)
-    now_kst = datetime.now(KST)  # 한국 시간으로 현재 시간 설정
+    # 비동기로 DB 연결
+    connection = await get_db_connection_async()
+    async with connection.cursor() as cursor:
+        # 페이지별 심볼 리스트를 가져옴
+        symbols = get_symbols_for_page(page)  # 비동기로 호출
+        now_kst = datetime.now(KST)  # 한국 시간으로 현재 시간 설정
 
-    for symbol in symbols:
-        data = latest_data.get(symbol, {})
-        if data:  # 데이터가 있는 심볼만 저장
-            # 1분 동안 누적된 거래량 가져오기
-            accumulated_volume = volume_accumulator.get(symbol, 0)
+        for symbol in symbols:
+            data = latest_data.get(symbol, {})
+            if data:  # 데이터가 있는 심볼만 저장
+                # 1분 동안 누적된 거래량 가져오기
+                accumulated_volume = volume_accumulator.get(symbol, 0)
 
-            # close_price와 volume을 float 또는 int로 변환
-            close_price = float(data.get('close') or 0)  # close가 없을 경우 기본값 0
-            accumulated_volume = int(accumulated_volume)
+                # close_price와 volume을 float 또는 int로 변환
+                close_price = float(data.get('close') or 0)  # close가 없을 경우 기본값 0
+                accumulated_volume = int(accumulated_volume)
 
-            # trading_value 계산
-            trading_value = close_price * accumulated_volume
+                # trading_value 계산
+                trading_value = close_price * accumulated_volume
 
-            values = (
-                data.get('symbol'),
-                now_kst,  # 한국 시간으로 저장
-                float(data.get('open') or 0),
-                close_price,
-                float(data.get('high') or 0),
-                float(data.get('low') or 0),
-                accumulated_volume,  # 1분 동안 누적된 거래량 저장
-                float(data.get('rate') or 0),
-                float(data.get('rate_price') or 0),
-                trading_value  # 누적 거래량과 close를 곱한 값
-            )
+                values = (
+                    data.get('symbol'),
+                    now_kst,  # 한국 시간으로 저장
+                    float(data.get('open') or 0),
+                    close_price,
+                    float(data.get('high') or 0),
+                    float(data.get('low') or 0),
+                    accumulated_volume,  # 1분 동안 누적된 거래량 저장
+                    float(data.get('rate') or 0),
+                    float(data.get('rate_price') or 0),
+                    trading_value  # 누적 거래량과 close를 곱한 값
+                )
 
-            # DB에 데이터 저장 쿼리
-            query = """
-            INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price, trading_value)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-                open = VALUES(open),
-                close = VALUES(close),
-                high = VALUES(high),
-                low = VALUES(low),
-                volume = VALUES(volume),
-                rate = VALUES(rate),
-                rate_price = VALUES(rate_price),
-                trading_value = VALUES(trading_value)
-            """
-            cursor.execute(query, values)
+                # DB에 데이터 저장 쿼리
+                query = """
+                INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price, trading_value)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) AS new
+                ON DUPLICATE KEY UPDATE
+                    open = new.open,
+                    close = new.close,
+                    high = new.high,
+                    low = new.low,
+                    volume = new.volume,
+                    rate = new.rate,
+                    rate_price = new.rate_price,
+                    trading_value = new.trading_value
+                """
+                await cursor.execute(query, values)  # 비동기 실행
 
-            # 각 심볼의 거래량 누적 초기화
-            volume_accumulator[symbol] = 0
+                # 각 심볼의 거래량 누적 초기화
+                volume_accumulator[symbol] = 0
 
-    connection.commit()
-    cursor.close()
-    connection.close()
+        await connection.commit()  # 커밋
+
 
 # lifespan 핸들러 설정
 @asynccontextmanager
