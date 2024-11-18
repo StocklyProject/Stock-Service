@@ -220,7 +220,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from aiokafka import AIOKafkaConsumer
 from .database import get_db_connection_async
-from datetime import datetime
+from datetime import datetime,timedelta
 import asyncio
 from . import routes as stockDetails_routes
 from starlette.middleware.cors import CORSMiddleware
@@ -228,6 +228,7 @@ import yfinance as yf
 import pytz
 from .service import get_symbols_for_page
 from src.logger import logger
+from collections import defaultdict
 
 # 기존 최신 데이터 및 거래량 누적 변수 설정
 KST = pytz.timezone('Asia/Seoul')
@@ -324,9 +325,20 @@ async def fetch_latest_data(page: int = 1):
 
 
 
-# 데이터베이스 저장 작업
+# 1분 동안의 데이터를 저장하는 딕셔너리
+symbol_accumulator = defaultdict(lambda: {
+    "first_open": None,  # 가장 처음 open 값
+    "latest_close": None,  # 가장 마지막 close 값
+    "high_max": float("-inf"),
+    "low_min": float("inf"),
+    "volume_sum": 0,
+    "rate_sum": 0.0,
+    "rate_price_sum": 0.0,
+    "count": 0
+})
+
 async def store_latest_data():
-    global data_queue
+    global data_queue, symbol_accumulator
 
     # DB 연결
     connection = await get_db_connection_async()
@@ -338,21 +350,55 @@ async def store_latest_data():
         while not data_queue.empty():  # 큐에 데이터가 있을 때만 처리
             data = await data_queue.get()
             try:
-                # 데이터 가공
                 symbol = data.get('symbol')
-                now_kst = datetime.now(KST)
-                trading_value = float(data.get('close', 0)) * int(data.get('volume', 0))
+                acc = symbol_accumulator[symbol]
 
+                # 가장 처음 open 값
+                if acc["first_open"] is None:
+                    acc["first_open"] = float(data.get('open', 0))
+
+                # 가장 마지막 close 값
+                acc["latest_close"] = float(data.get('close', 0))
+
+                # 데이터 누적
+                acc["high_max"] = max(acc["high_max"], float(data.get('high', 0)))
+                acc["low_min"] = min(acc["low_min"], float(data.get('low', 0)))
+                acc["volume_sum"] += int(data.get('volume', 0))
+                acc["rate_sum"] += float(data.get('rate', 0))
+                acc["rate_price_sum"] += float(data.get('rate_price', 0))
+                acc["count"] += 1
+
+            except Exception as e:
+                logger.error(f"Error accumulating data: {e}")
+
+        # 1분 동안 누적된 데이터를 처리
+        now_kst = datetime.now(KST)
+        try:
+            for symbol, acc in symbol_accumulator.items():
+                if acc["count"] == 0:  # 데이터가 없는 경우 건너뜀
+                    continue
+
+                # 누적된 데이터로 계산
+                open_value = acc["first_open"]  # 가장 처음 open 값
+                close_value = acc["latest_close"]  # 가장 마지막 close 값
+                high_max = acc["high_max"]
+                low_min = acc["low_min"]
+                volume_sum = acc["volume_sum"]
+                rate_avg = acc["rate_sum"] / acc["count"]  # 평균 rate
+                rate_price_avg = acc["rate_price_sum"] / acc["count"]  # 평균 rate_price
+                trading_value = close_value * volume_sum
+
+                # 데이터베이스 저장 값
                 values = (
                     symbol,
                     now_kst,
-                    float(data.get('open', 0)),
-                    float(data.get('close', 0)),
-                    float(data.get('high', 0)),
-                    float(data.get('low', 0)),
-                    int(data.get('volume', 0)),
-                    float(data.get('rate', 0)),
-                    float(data.get('rate_price', 0)),
+                    open_value,
+                    close_value,
+                    high_max,
+                    low_min,
+                    volume_sum,
+                    rate_avg,
+                    rate_price_avg,
                     trading_value,
                 )
 
@@ -370,13 +416,15 @@ async def store_latest_data():
                     trading_value = VALUES(trading_value)
                 """
                 await cursor.execute(query, values)
-                logger.info(f"Data for symbol {symbol} stored successfully.")
-                data_queue.task_done()
-            except Exception as e:
-                logger.error(f"Error storing data: {e}")
+                logger.info(f"Averaged data for symbol {symbol} stored successfully.")
+
+            # 누적 데이터 초기화
+            symbol_accumulator.clear()
+
+        except Exception as e:
+            logger.error(f"Error storing aggregated data: {e}")
 
         await connection.commit()
-
 
 # lifespan 핸들러 설정
 @asynccontextmanager
@@ -389,7 +437,7 @@ async def lifespan(app: FastAPI):
 
     # 스케줄러 설정 및 시작
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(store_latest_data, IntervalTrigger(seconds=30))  # 30초마다 실행
+    scheduler.add_job(store_latest_data, IntervalTrigger(seconds=60))  # 60초마다 실행
     scheduler.start()
 
     yield
