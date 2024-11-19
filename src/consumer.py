@@ -1,6 +1,5 @@
 from aiokafka import AIOKafkaConsumer
 import json
-import asyncio
 from .logger import logger
 
 async def async_kafka_consumer(topic: str, group_id: str):
@@ -18,9 +17,9 @@ async def async_kafka_consumer(topic: str, group_id: str):
     )
     try:
         await consumer.start()
-        print("Kafka connection successful.")
+        logger.info("Kafka connection successful.")
         return consumer  # 연결 성공 시 consumer 반환
     except Exception as e:
-        print(f"Kafka connection failed: {e}")
+        logger.error(f"Kafka connection failed: {e}")
         return None  # 연결 실패 시 None 반환
 
