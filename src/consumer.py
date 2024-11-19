@@ -5,8 +5,8 @@ from .logger import logger
 async def async_kafka_consumer(topic: str, group_id: str):
     consumer = AIOKafkaConsumer(
         topic,
-        # bootstrap_servers=['kafka:9092'],
-        bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
+        bootstrap_servers=['kafka:9092'],
+        # bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
         group_id=group_id,
         auto_offset_reset='latest',
         enable_auto_commit=True,
@@ -18,8 +18,17 @@ async def async_kafka_consumer(topic: str, group_id: str):
     try:
         await consumer.start()
         logger.info("Kafka connection successful.")
-        return consumer  # 연결 성공 시 consumer 반환
+        # Consumer 데이터 처리 로직
+        async for message in consumer:
+            try:
+                data = message.value
+                logger.info(f"Received message: {data}")
+                # 메시지 처리 로직 추가
+            except Exception as e:
+                logger.error(f"Error processing message: {e}")
     except Exception as e:
         logger.error(f"Kafka connection failed: {e}")
-        return None  # 연결 실패 시 None 반환
-
+    finally:
+        logger.info("Stopping Kafka consumer...")
+        await consumer.stop()
+        logger.info("Kafka consumer stopped.")

@@ -99,8 +99,8 @@ async def fetch_latest_data(page: int = 1):
     consumer = AIOKafkaConsumer(
         'real_time_stock_prices',
         auto_offset_reset='latest',
-        # bootstrap_servers=['kafka:9092'],
-        bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
+        bootstrap_servers=['kafka:9092'],
+        # bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
         group_id=f'stock_data_group_page_{page}',
         value_deserializer=lambda x: json.loads(x.decode('utf-8')) if x else None,
         enable_auto_commit=True,
