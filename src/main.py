@@ -342,8 +342,8 @@ async def lifespan(app: FastAPI):
     # 스케줄러 설정 및 시작
     scheduler = AsyncIOScheduler()
     scheduler.add_job(store_latest_data, IntervalTrigger(seconds=60))  # 60초마다 실행
-    # scheduler.add_job(aggregate_daily_data, CronTrigger(hour=0, minute=0, timezone=KST))  # 매일 자정 실행
-    scheduler.add_job(aggregate_daily_data, IntervalTrigger(seconds=60))
+    scheduler.add_job(aggregate_daily_data, CronTrigger(hour=0, minute=0, timezone=KST))  # 매일 자정 실행
+    # scheduler.add_job(aggregate_daily_data, IntervalTrigger(seconds=60))
     scheduler.start()
 
     yield
