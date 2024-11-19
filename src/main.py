@@ -18,7 +18,7 @@ from collections import defaultdict
 
 # 기존 최신 데이터 및 거래량 누적 변수 설정
 KST = pytz.timezone('Asia/Seoul')
-company_symbols = ['005930.KS', '003550.KS', '00660.KS', '207940.KS', '000270.KS']  # ['삼성전자', 'LG']
+company_symbols = ['005930.KS', '003550.KS', '000660.KS', '207940.KS', '000270.KS']  # ['삼성전자', 'LG']
 
 # Kafka 데이터 큐 생성
 data_queue = asyncio.Queue()
