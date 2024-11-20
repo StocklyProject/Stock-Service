@@ -80,8 +80,6 @@ async def sse_event_generator(topic: str, group_id: str, symbol: str):
             # JSON으로 파싱된 데이터에서 symbol을 확인
             if isinstance(data, dict) and data.get("symbol") == symbol:
                 yield f"data: {json.dumps(data)}\n\n"  # 클라이언트에 데이터 전송
-            #
-            # await asyncio.sleep(0.1)  # 메시지 간 대기 시간 설정
     except asyncio.CancelledError:
         # 클라이언트 연결이 끊겼을 때 발생
         print(f"Client disconnected from stream for symbol: {symbol}")

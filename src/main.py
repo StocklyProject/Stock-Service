@@ -15,7 +15,7 @@ import pytz
 from .service import get_symbols_for_page
 from src.logger import logger
 from collections import defaultdict
-
+from .consumer import async_kafka_consumer
 # 기존 최신 데이터 및 거래량 누적 변수 설정
 KST = pytz.timezone('Asia/Seoul')
 company_symbols = ['005930.KS', '003550.KS', '000660.KS', '207940.KS', '000270.KS']  # ['삼성전자', 'LG']
@@ -93,43 +93,26 @@ async def store_historical_data():
             # 트랜잭션 커밋
             await connection.commit()
             logger.info("All historical data stored successfully.")
+
+
 async def fetch_latest_data(page: int = 1):
     global data_queue
-
-    consumer = AIOKafkaConsumer(
-        'real_time_stock_prices',
-        auto_offset_reset='latest',
-        # bootstrap_servers=['kafka:9092'],
-        bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
-        group_id=f'stock_data_group_page_{page}',
-        value_deserializer=lambda x: json.loads(x.decode('utf-8')) if x else None,
-        enable_auto_commit=True,
-    )
-
-    try:
-        logger.info("Starting Kafka consumer...")
-        await consumer.start()
-        logger.info("Kafka consumer started successfully.")
-
-        async for message in consumer:
-            try:
-                logger.debug(f"Message received: {message.value}")
-                data = message.value
-                if isinstance(data, dict):
-                    await data_queue.put(data)
-                    logger.info(f"Data added to queue: {data}")
-                else:
-                    logger.warning(f"Unexpected message format: {type(data)} - {data}")
-            except Exception as e:
-                logger.error(f"Error processing Kafka message: {e}")
-
-    except Exception as e:
-        logger.error(f"Error starting Kafka consumer: {e}")
-
-    finally:
-        logger.info("Stopping Kafka consumer...")
-        await consumer.stop()
-        logger.info("Kafka consumer stopped.")
+    consumer = await async_kafka_consumer('real_time_stock_prices', f'stock_data_group_page_{page}')
+    async for message in consumer:
+        try:
+            logger.debug(f"Message received: {message.value}")
+            data = message.value
+            if isinstance(data, dict):
+                await data_queue.put(data)
+                logger.info(f"Data added to queue: {data}")
+            else:
+                logger.warning(f"Unexpected message format: {type(data)} - {data}")
+        except Exception as e:
+            logger.error(f"Error processing Kafka message: {e}")
+        finally:
+            logger.info("Stopping Kafka consumer...")
+            await consumer.stop()
+            logger.info("Kafka consumer stopped.")
 
 
 
