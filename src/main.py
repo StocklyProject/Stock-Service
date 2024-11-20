@@ -109,6 +109,11 @@ async def fetch_latest_data(page: int = 1):
                 logger.warning(f"Unexpected message format: {type(data)} - {data}")
         except Exception as e:
             logger.error(f"Error processing Kafka message: {e}")
+        # finally:
+        #     logger.info("Stopping Kafka consumer...")
+        #     await consumer.stop()
+        #     logger.info("Kafka consumer stopped.")
+
 
 
 # 1분 동안의 데이터를 저장하는 딕셔너리

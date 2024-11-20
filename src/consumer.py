@@ -21,8 +21,9 @@ async def async_kafka_consumer(topic: str, group_id: str) -> AIOKafkaConsumer:
         logger.info("Kafka consumer started.")
         return consumer  # Consumer 객체 반환
     except Exception as e:
-        logger.error(f"Error starting Kafka consumer: {e}")
-        raise
+        logger.error(f"Error starting Kafka consumer for topic {topic} and group {group_id}: {e}")
+        await consumer.stop()  # 실패 시 명확히 종료
+        return None
 
 
 
