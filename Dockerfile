@@ -15,8 +15,8 @@ RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
     rm -rf /root/.cache/pip  # 캐시 삭제로 이미지 크기 최소화
 
-### 서비스 소스 코드 복사
-##COPY ./src/ ./src
+# 서비스 소스 코드 복사
+COPY ./src/ ./src
 
 # PYTHONPATH 환경 변수 설정
 ENV PYTHONPATH=/Stock-Service

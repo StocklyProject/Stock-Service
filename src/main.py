@@ -13,7 +13,7 @@ from starlette.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pytz
 from .service import get_symbols_for_page
-from src.logger import logger
+from .logger import logger
 from collections import defaultdict
 from .consumer import async_kafka_consumer
 # 기존 최신 데이터 및 거래량 누적 변수 설정
