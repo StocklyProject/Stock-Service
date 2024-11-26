@@ -12,19 +12,6 @@ services:
     networks:
       - app-network
 
-#  consumer:
-#    build:
-#      context: .
-#      dockerfile: ./consumer/Dockerfile
-#    env_file:
-#      - .env
-#    networks:
-#      - app-network
-#    deploy:
-#      replicas: 5  # 컨슈머 레플리카 5개 설정
-#      restart_policy:
-#        condition: on-failure  # 실패 시 자동 재시작
-
 networks:
   app-network:
     external: true

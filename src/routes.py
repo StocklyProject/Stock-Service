@@ -9,7 +9,8 @@ from datetime import timezone, timedelta
 from .database import get_db_connection
 from aiokafka import AIOKafkaConsumer
 from .logger import logger
-
+import uuid
+from .faust_app.sse import sse_stream
 KST = pytz.timezone('Asia/Seoul')
 
 router = APIRouter(
@@ -17,12 +18,13 @@ router = APIRouter(
     tags=["stocks"],
 )
 
-@router.get("/sse/stream/{symbol}", response_class=StreamingResponse)
-async def sse_stream(symbol: str):
-    topic = "real_time_stock_prices"
-    now_kst = datetime.now()
-    group_id = f"sse_consumer_group_{symbol}_{now_kst.strftime('%Y%m%d%H%M%S%f')}"
-    return StreamingResponse(sse_event_generator(topic, group_id, symbol), media_type="text/event-stream")
+
+# @router.get("/sse/stream/{symbol}", response_class=StreamingResponse)
+# async def sse_stream(symbol: str):
+#     topic = "real_time_stock_prices"
+#     now_kst = datetime.now()
+#     group_id = f"sse_consumer_group_{uuid.uuid4()}"  # 고유한 group_id 생성
+#     return StreamingResponse(sse_event_generator(topic, group_id, symbol), media_type="text/event-stream")
 
 
 @router.get("/sse/streamFilter", response_class=StreamingResponse)
@@ -149,3 +151,10 @@ async def get_latest_symbols(page: int = Query(1)):
     symbols = get_symbols_for_page(page)
     latest_data = get_latest_symbols_data(symbols)
     return latest_data
+
+@router.get("/faust_stream/{symbol}", response_class=StreamingResponse)
+async def stream_stock_data(symbol: str):
+    """
+    SSE를 통해 실시간으로 주식 데이터를 스트리밍
+    """
+    return sse_stream(symbol)

@@ -16,6 +16,8 @@ from .service import get_symbols_for_page
 from .logger import logger
 from collections import defaultdict
 from .consumer import async_kafka_consumer
+from src.faust_app.app import app_faust
+
 # 기존 최신 데이터 및 거래량 누적 변수 설정
 KST = pytz.timezone('Asia/Seoul')
 company_symbols = ['005930.KS', '003550.KS', '000660.KS', '207940.KS', '000270.KS']  # ['삼성전자', 'LG']
@@ -97,7 +99,7 @@ async def store_historical_data():
 
 async def fetch_latest_data(page: int = 1):
     global data_queue
-    consumer = await async_kafka_consumer('real_time_stock_prices', f'stock_data_group_page_{page}')
+    consumer = await async_kafka_consumer('real_time_stock_prices', f'stock_data_group_page')
     async for message in consumer:
         try:
             logger.debug(f"Message received: {message.value}")
@@ -109,10 +111,8 @@ async def fetch_latest_data(page: int = 1):
                 logger.warning(f"Unexpected message format: {type(data)} - {data}")
         except Exception as e:
             logger.error(f"Error processing Kafka message: {e}")
-        # finally:
-        #     logger.info("Stopping Kafka consumer...")
-        #     await consumer.stop()
-        #     logger.info("Kafka consumer stopped.")
+        finally:
+            await consumer.stop()
 
 
 
@@ -316,27 +316,25 @@ async def aggregate_daily_data():
 # lifespan 핸들러 설정
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 앱 시작 시 과거 데이터를 한 번만 저장
     await store_historical_data()
 
-    # Kafka 데이터 수신 작업 비동기 시작
-    kafka_task = asyncio.create_task(fetch_latest_data())
+    # kafka_task = asyncio.create_task(fetch_latest_data())
+    faust_task = asyncio.create_task(app_faust.start())
 
-    # 스케줄러 설정 및 시작
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(store_latest_data, IntervalTrigger(seconds=60))  # 60초마다 실행
-    # scheduler.add_job(aggregate_daily_data, CronTrigger(hour=0, minute=0, timezone=KST))  # 매일 자정 실행
-    # scheduler.add_job(aggregate_daily_data, IntervalTrigger(seconds=60))
+    scheduler.add_job(store_latest_data, IntervalTrigger(seconds=60))
     scheduler.start()
 
-    yield
-
-    # 종료 시 정리
-    scheduler.shutdown()
-    kafka_task.cancel()
-    await kafka_task
-
-
+    try:
+        yield
+    finally:
+        # Shutdown logic
+        scheduler.shutdown()
+        # kafka_task.cancel()
+        faust_task.cancel()
+        await asyncio.gather(faust_task, return_exceptions=True)
+        await app_faust.stop()  # Stopping Faust application
+        logger.info("Application shutdown completed.")
 
 # FastAPI 앱 설정
 app = FastAPI(lifespan=lifespan)
