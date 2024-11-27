@@ -24,18 +24,6 @@ stock_topic = app_faust.topic('real_time_stock_prices', key_type=str, value_type
 processed_topic = app_faust.topic('one_minutes_stock_prices', value_type=dict)
 
 
-# 5분봉 테이블 정의
-# five_minute_table = app_faust.Table(
-#     'five_minute_table',
-#     default=lambda: dict,
-#     partitions=15,
-#     on_window_close=lambda key, value, window: logger.info(f"5분봉 윈도우 닫힘: {key}, {value}")
-# ).tumbling(
-#     timedelta(minutes=5),
-#     expires=timedelta(minutes=15),
-#     key_index=True
-# )
-
 real_time_table = app_faust.Table(
     'real_time_table',
     default=dict,  # 딕셔너리 형태로 관리

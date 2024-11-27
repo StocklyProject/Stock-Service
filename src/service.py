@@ -7,64 +7,146 @@ from typing import List
 from .logger import logger
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
+import orjson
+from decimal import Decimal
 
 
 KST = pytz.timezone('Asia/Seoul')
 
-# 데이터 형식 변환 함수
 def format_data(row):
     """데이터 형식을 지정된 형식에 맞게 변환"""
+    def safe_int(value):
+        return int(value) if value is not None else 0
+
+    def safe_float(value):
+        return float(value) if value is not None else 0.0
+
+    rate_price = safe_float(row.get('rate_price', 0))
+    rate_price_str = f"{int(rate_price)}" if rate_price < 0 else f"+{int(rate_price)}"
+
+    rate = safe_float(row.get('rate', 0.0))
+    rate_str = f"{rate:.2f}" if rate < 0 else f"+{rate:.2f}"
+
     return {
-        "symbol": row["symbol"],
-        "date": row["date_group"].strftime("%H:%M:%S") if isinstance(row["date_group"], datetime) else row["date_group"],
-        "open": f"{float(row['open'])}",
-        "close": f"{float(row['close'])}",
-        "high": str(row["high"]),
-        "low": str(row["low"]),
-        "rate_price": f"{int(row.get('rate_price', 0))}" if row.get('rate_price', 0) < 0 else f"+{int(row.get('rate_price', 0))}",
-        "rate": f"{row.get('rate', 0.0)}" if row.get('rate', 0.0) < 0 else f"+{row.get('rate', 0.0)}",
-        "volume": str(row["volume"]),
-        "trading_value": str(row["trading_value"])
+        "symbol": row.get("symbol", ""),
+        "date": row["date_group"],
+        "open": f"{safe_float(row.get('open', 0.0)):.2f}",
+        "close": f"{safe_float(row.get('close', 0.0)):.2f}",
+        "high": f"{safe_float(row.get('high', 0.0)):.2f}",
+        "low": f"{safe_float(row.get('low', 0.0)):.2f}",
+        "rate_price": rate_price_str,
+        "rate": rate_str,
+        "volume": str(safe_int(row.get('volume', 0))),
+        "trading_value": f"{safe_float(row.get('trading_value', 0.0)):.2f}"
     }
 
-async def get_filtered_data(symbol: str, interval: str, start_time=None):
+
+async def get_filtered_data(symbol: str, interval: str, start_date=None):
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
 
-    # Interval에 따른 group_by 설정
-    if interval == "1m":
-        group_by = "FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(created_at) / 60) * 60)"
-    elif interval == "5m":
-        group_by = "FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(created_at) / 300) * 300)"
+    # interval 값을 숫자로 변환
+    try:
+        interval_minutes = int(interval.replace("m", ""))
+    except ValueError:
+        raise ValueError("Invalid interval format. Use values like '1m', '5m', '10m'.")
+
+    if interval_minutes == 1:
+        # 1분봉은 데이터베이스 값 그대로 조회
+        query = """
+            SELECT 
+                symbol,
+                open,
+                close,
+                high,
+                low,
+                volume,
+                trading_value,
+                DATE_FORMAT(date, '%Y-%m-%d %H:%i:00') AS date_group,
+                ROUND(rate, 2) AS rate,
+                rate_price
+            FROM stock
+            WHERE symbol = %s AND date >= %s AND TIME(date) != '00:00:00'
+            ORDER BY date_group
+        """
     else:
-        raise ValueError("Invalid interval")
+        # N분봉은 쿼리로 계산
+        query = f"""
+                WITH grouped_data AS (
+                    SELECT 
+                        symbol,
+                        DATE_FORMAT(
+                            DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
+                        ) AS date_group,
+                        FIRST_VALUE(open) OVER (
+                            PARTITION BY DATE_FORMAT(
+                                DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
+                            ) ORDER BY date ASC
+                        ) AS open,
+                        LAST_VALUE(close) OVER (
+                            PARTITION BY DATE_FORMAT(
+                                DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
+                            ) ORDER BY date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+                        ) AS close,
+                        MAX(high) OVER (
+                            PARTITION BY DATE_FORMAT(
+                                DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
+                            )
+                        ) AS high,
+                        MIN(low) OVER (
+                            PARTITION BY DATE_FORMAT(
+                                DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
+                            )
+                        ) AS low,
+                        SUM(volume) OVER (
+                            PARTITION BY DATE_FORMAT(
+                                DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
+                            )
+                        ) AS volume,
+                        SUM(trading_value) OVER (
+                            PARTITION BY DATE_FORMAT(
+                                DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
+                            )
+                        ) AS trading_value
+                    FROM stock
+                    WHERE symbol = %s AND date >= %s AND TIME(date) != '00:00:00'
+                ),
+                unique_data AS (
+                    SELECT DISTINCT
+                        symbol,
+                        open,
+                        close,
+                        high,
+                        low,
+                        volume,
+                        trading_value,
+                        LAG(close) OVER (PARTITION BY symbol ORDER BY date_group ASC) AS prev_close,
+                        date_group
+                    FROM grouped_data
+                )
+                SELECT 
+                    symbol,
+                    open,
+                    close,
+                    high,
+                    low,
+                    volume,
+                    trading_value,
+                    ROUND((close - prev_close) / prev_close * 100, 2) AS rate, -- rate 계산
+                    close - prev_close AS rate_price, -- rate_price 계산
+                    date_group
+                FROM unique_data
+                WHERE prev_close IS NOT NULL -- 이전 데이터가 없는 첫 번째 그룹 제외
+                ORDER BY date_group;
+        """
 
-    # SQL 쿼리 실행
-    query = f"""
-        SELECT 
-            symbol,
-            AVG(open) AS open,
-            AVG(close) AS close,
-            MAX(high) AS high,
-            MIN(low) AS low,
-            SUM(volume) AS volume,
-            AVG(rate) AS rate,
-            AVG(rate_price) AS rate_price,
-            {group_by} AS date_group,
-            SUM(trading_value) AS trading_value,
-            MAX(created_at) AS last_created
-        FROM stock
-        WHERE symbol = %s AND created_at >= %s
-        GROUP BY date_group
-        ORDER BY date_group
-    """
-
-    cursor.execute(query, (symbol, start_time))
+    cursor.execute(query, (symbol, start_date))
     rows = cursor.fetchall()
     formatted_rows = [format_data(row) for row in rows]
     cursor.close()
     connection.close()
     return formatted_rows
+
 
 # SSE 비동기 이벤트 생성기
 async def sse_event_generator(topic: str, group_id: str, symbol: str):
@@ -77,9 +159,14 @@ async def sse_event_generator(topic: str, group_id: str, symbol: str):
             except json.JSONDecodeError:
                 continue
 
+            if "__faust" in data:
+                data.pop("__faust")
+                logger.debug(f"Removed '__faust' from data: {data}")
+
             # JSON으로 파싱된 데이터에서 symbol을 확인
             if isinstance(data, dict) and data.get("symbol") == symbol:
                 yield f"data: {json.dumps(data)}\n\n"  # 클라이언트에 데이터 전송
+
     except asyncio.CancelledError:
         # 클라이언트 연결이 끊겼을 때 발생
         print(f"Client disconnected from stream for symbol: {symbol}")
@@ -109,15 +196,13 @@ def get_symbols_for_page(page: int, page_size: int = 20) -> List[str]:
 
     return symbols
 
-
 async def sse_pagination_generator(topic: str, group_id: str, symbols: List[str]):
     consumer = await async_kafka_consumer(topic, group_id)
     if consumer is None:
         logger.error("Kafka consumer setup failed, exiting generator.")
-        return  # 연결 실패 시 스트리밍을 종료하도록 처리
+        return
 
     symbol_data_dict = {symbol: None for symbol in symbols}
-    last_send_time = datetime.now()
     logger.info(f"Kafka consumer started - Group ID: {group_id}")
 
     try:
@@ -129,21 +214,21 @@ async def sse_pagination_generator(topic: str, group_id: str, symbols: List[str]
                 logger.warning("Failed to decode message")
                 continue
 
+            if "__faust" in data:
+                data.pop("__faust")
+
             # 심볼별 데이터 업데이트
             symbol = data.get("symbol")
             if symbol in symbol_data_dict:
-                symbol_data_dict[symbol] = data
-                logger.debug(f"Updated data for symbol {symbol}")
+                # 데이터가 변경되었을 경우에만 전송
+                if symbol_data_dict[symbol] != data:
+                    symbol_data_dict[symbol] = data
+                    logger.debug(f"Updated data for symbol {symbol}")
 
-            # 1초마다 데이터 번들링 및 전송
-            current_time = datetime.now()
-            if (current_time - last_send_time) >= timedelta(seconds=1):
-                bundled_data = json.dumps([data for data in symbol_data_dict.values() if data is not None])
-                logger.info(f"Sending bundled data: {bundled_data}")
-                yield f"data: {bundled_data}\n\n"
-
-                last_send_time = current_time
-                await asyncio.sleep(0.1)
+                    # 즉시 전송 (변경된 데이터만)
+                    bundled_data = orjson.dumps([data]).decode("utf-8")
+                    logger.info(f"Sending updated data: {bundled_data}")
+                    yield f"data: {bundled_data}\n\n"
 
     except asyncio.CancelledError:
         logger.info("Client disconnected from SSE stream.")
@@ -156,7 +241,6 @@ def get_latest_symbols_data(symbols: List[str]) -> List[Dict[str, Any]]:
     database = get_db_connection()
     cursor = database.cursor(dictionary=True)
 
-    # Use a query to get the latest record for each symbol
     query = """
         SELECT s1.symbol, s1.high, s1.low, s1.volume, s1.date, s1.open, s1.close, s1.rate, s1.rate_price, s1.trading_value
         FROM stock s1
@@ -170,14 +254,11 @@ def get_latest_symbols_data(symbols: List[str]) -> List[Dict[str, Any]]:
         ORDER BY s1.id ASC  -- Ensure the ordering by id
         LIMIT 20            -- Limit to 20 records if needed
     """
-    # Format query symbols for the IN clause
     format_strings = ', '.join(['%s'] * len(symbols))
     query = query % format_strings
 
-    # Execute the query with symbols as parameters
     cursor.execute(query, symbols)
 
-    # Fetch results and format them as a list of dictionaries
     latest_data = cursor.fetchall()
 
     cursor.close()
