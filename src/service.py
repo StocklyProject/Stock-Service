@@ -229,6 +229,7 @@ async def sse_pagination_generator(topic: str, group_id: str, symbols: List[str]
 
     except asyncio.CancelledError:
         logger.info("Client disconnected from SSE stream.")
+        consumer.stop()
 
 
 def get_latest_symbols_data(symbols: List[str]) -> List[Dict[str, Any]]:
