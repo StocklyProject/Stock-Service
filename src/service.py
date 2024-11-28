@@ -171,8 +171,9 @@ async def sse_event_generator(topic: str, group_id: str, symbol: str):
         # 클라이언트 연결이 끊겼을 때 발생
         print(f"Client disconnected from stream for symbol: {symbol}")
     finally:
-        await consumer.stop()  # 스트리밍 종료 시 Kafka 소비자 종료
-        print(f"Stream for {symbol} stopped.")
+        if not consumer.is_closing():  # 종료 상태 확인
+            await consumer.stop()
+            print(f"Stream for {symbol} stopped.")
 
 
 def get_symbols_for_page(page: int, page_size: int = 20) -> List[str]:
