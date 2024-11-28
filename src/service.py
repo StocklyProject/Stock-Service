@@ -41,6 +41,112 @@ def format_data(row):
     }
 
 
+# async def get_filtered_data(symbol: str, interval: str, start_date=None):
+#     connection = get_db_connection()
+#     cursor = connection.cursor(dictionary=True)
+
+#     # interval 값을 숫자로 변환
+#     try:
+#         interval_minutes = int(interval.replace("m", ""))
+#     except ValueError:
+#         raise ValueError("Invalid interval format. Use values like '1m', '5m', '10m'.")
+
+#     if interval_minutes == 1:
+#         # 1분봉은 데이터베이스 값 그대로 조회
+#         query = """
+#             SELECT 
+#                 symbol,
+#                 open,
+#                 close,
+#                 high,
+#                 low,
+#                 volume,
+#                 trading_value,
+#                 DATE_FORMAT(date, '%Y-%m-%d %H:%i:00') AS date_group,
+#                 ROUND(rate, 2) AS rate,
+#                 rate_price
+#             FROM stock
+#             WHERE symbol = %s AND date >= %s AND TIME(date) != '00:00:00'
+#             ORDER BY date_group
+#         """
+#     else:
+#         # N분봉은 쿼리로 계산
+#         query = f"""
+#                 WITH grouped_data AS (
+#                     SELECT 
+#                         symbol,
+#                         DATE_FORMAT(
+#                             DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
+#                         ) AS date_group,
+#                         FIRST_VALUE(open) OVER (
+#                             PARTITION BY DATE_FORMAT(
+#                                 DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
+#                             ) ORDER BY date ASC
+#                         ) AS open,
+#                         LAST_VALUE(close) OVER (
+#                             PARTITION BY DATE_FORMAT(
+#                                 DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
+#                             ) ORDER BY date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+#                         ) AS close,
+#                         MAX(high) OVER (
+#                             PARTITION BY DATE_FORMAT(
+#                                 DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
+#                             )
+#                         ) AS high,
+#                         MIN(low) OVER (
+#                             PARTITION BY DATE_FORMAT(
+#                                 DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
+#                             )
+#                         ) AS low,
+#                         SUM(volume) OVER (
+#                             PARTITION BY DATE_FORMAT(
+#                                 DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
+#                             )
+#                         ) AS volume,
+#                         SUM(trading_value) OVER (
+#                             PARTITION BY DATE_FORMAT(
+#                                 DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
+#                             )
+#                         ) AS trading_value
+#                     FROM stock
+#                     WHERE symbol = %s AND date >= %s AND TIME(date) != '00:00:00'
+#                 ),
+#                 unique_data AS (
+#                     SELECT DISTINCT
+#                         symbol,
+#                         open,
+#                         close,
+#                         high,
+#                         low,
+#                         volume,
+#                         trading_value,
+#                         LAG(close) OVER (PARTITION BY symbol ORDER BY date_group ASC) AS prev_close,
+#                         date_group
+#                     FROM grouped_data
+#                 )
+#                 SELECT 
+#                     symbol,
+#                     open,
+#                     close,
+#                     high,
+#                     low,
+#                     volume,
+#                     trading_value,
+#                     ROUND((close - prev_close) / prev_close * 100, 2) AS rate, -- rate 계산
+#                     close - prev_close AS rate_price, -- rate_price 계산
+#                     date_group
+#                 FROM unique_data
+#                 WHERE prev_close IS NOT NULL -- 이전 데이터가 없는 첫 번째 그룹 제외
+#                 ORDER BY date_group;
+#         """
+
+#     cursor.execute(query, (symbol, start_date))
+#     rows = cursor.fetchall()
+#     formatted_rows = [format_data(row) for row in rows]
+#     cursor.close()
+#     connection.close()
+#     return formatted_rows
+
 async def get_filtered_data(symbol: str, interval: str, start_date=None):
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
@@ -72,80 +178,81 @@ async def get_filtered_data(symbol: str, interval: str, start_date=None):
     else:
         # N분봉은 쿼리로 계산
         query = f"""
-                WITH grouped_data AS (
-                    SELECT 
-                        symbol,
-                        DATE_FORMAT(
-                            DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
-                        ) AS date_group,
-                        FIRST_VALUE(open) OVER (
-                            PARTITION BY DATE_FORMAT(
-                                DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
-                            ) ORDER BY date ASC
-                        ) AS open,
-                        LAST_VALUE(close) OVER (
-                            PARTITION BY DATE_FORMAT(
-                                DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
-                            ) ORDER BY date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
-                        ) AS close,
-                        MAX(high) OVER (
-                            PARTITION BY DATE_FORMAT(
-                                DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
-                            )
-                        ) AS high,
-                        MIN(low) OVER (
-                            PARTITION BY DATE_FORMAT(
-                                DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
-                            )
-                        ) AS low,
-                        SUM(volume) OVER (
-                            PARTITION BY DATE_FORMAT(
-                                DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
-                            )
-                        ) AS volume,
-                        SUM(trading_value) OVER (
-                            PARTITION BY DATE_FORMAT(
-                                DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
-                            )
-                        ) AS trading_value
-                    FROM stock
-                    WHERE symbol = %s AND date >= %s AND TIME(date) != '00:00:00'
-                ),
-                unique_data AS (
-                    SELECT DISTINCT
-                        symbol,
-                        open,
-                        close,
-                        high,
-                        low,
-                        volume,
-                        trading_value,
-                        LAG(close) OVER (PARTITION BY symbol ORDER BY date_group ASC) AS prev_close,
-                        date_group
-                    FROM grouped_data
-                )
-                SELECT 
+            WITH raw_grouped_data AS (
+                SELECT
                     symbol,
+                    DATE_FORMAT(
+                        DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
+                    ) AS date_group,
                     open,
-                    close,
                     high,
                     low,
+                    close,
                     volume,
-                    trading_value,
-                    ROUND((close - prev_close) / prev_close * 100, 2) AS rate, -- rate 계산
-                    close - prev_close AS rate_price, -- rate_price 계산
+                    trading_value
+                FROM stock
+                WHERE symbol = %s AND date >= %s AND TIME(date) != '00:00:00'
+            ),
+            grouped_data AS (
+                SELECT
+                    symbol,
+                    date_group,
+                    (
+                        SELECT open
+                        FROM stock AS sub
+                        WHERE sub.symbol = raw.symbol
+                        AND DATE_FORMAT(
+                                DATE_SUB(sub.date, INTERVAL MINUTE(sub.date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
+                            ) = raw.date_group
+                        ORDER BY sub.date ASC
+                        LIMIT 1
+                    ) AS first_open, -- 그룹의 첫 데이터 open 값
+                    MAX(high) AS high, -- 그룹 내 최고값
+                    MIN(low) AS low, -- 그룹 내 최저값
+                    MAX(close) AS last_close, -- 그룹의 마지막 데이터 close 값
+                    SUM(volume) AS total_volume, -- 그룹 내 총 volume
+                    SUM(trading_value) AS total_trading_value -- 그룹 내 총 거래 금액
+                FROM raw_grouped_data AS raw
+                GROUP BY symbol, date_group
+            ),
+            rate_and_open_calculation AS (
+                SELECT
+                    symbol,
+                    LAG(last_close) OVER (PARTITION BY symbol ORDER BY date_group ASC) AS prev_close, -- 이전 그룹 close 값
+                    first_open AS open, -- 그룹의 첫 번째 데이터 open 값
+                    high,
+                    low,
+                    total_volume AS volume,
+                    total_trading_value AS trading_value,
+                    last_close AS close, -- 그룹의 마지막 데이터 close 값
                     date_group
-                FROM unique_data
-                WHERE prev_close IS NOT NULL -- 이전 데이터가 없는 첫 번째 그룹 제외
-                ORDER BY date_group;
+                FROM grouped_data
+            )
+            SELECT
+                symbol,
+                COALESCE(prev_close, open) AS open, -- 이전 close 값이 있으면 그것을 open으로 사용
+                close,
+                high,
+                low,
+                volume,
+                trading_value,
+                ROUND((close - prev_close) / prev_close * 100, 2) AS rate, -- rate 계산
+                close - prev_close AS rate_price, -- rate_price 계산
+                date_group
+            FROM rate_and_open_calculation
+            WHERE prev_close IS NOT NULL -- 첫 번째 그룹 제외
+            ORDER BY date_group;
         """
 
     cursor.execute(query, (symbol, start_date))
     rows = cursor.fetchall()
+
+    # 데이터 형식을 지정된 형식에 맞게 변환
     formatted_rows = [format_data(row) for row in rows]
     cursor.close()
     connection.close()
     return formatted_rows
+
 
 
 # SSE 비동기 이벤트 생성기
