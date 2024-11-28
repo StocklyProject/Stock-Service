@@ -233,8 +233,9 @@ async def sse_pagination_generator(topic: str, group_id: str, symbols: List[str]
     except asyncio.CancelledError:
         logger.info("Client disconnected from SSE stream.")
     finally:
-        await consumer.stop()
-        logger.info(f"Kafka consumer stopped - Group ID: {group_id}")
+        if not consumer.is_closing():  # 종료 상태 확인
+            await consumer.stop()
+            logger.info(f"Kafka consumer stopped - Group ID: {group_id}")
 
 
 def get_latest_symbols_data(symbols: List[str]) -> List[Dict[str, Any]]:
