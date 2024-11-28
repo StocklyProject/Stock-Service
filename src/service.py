@@ -170,10 +170,6 @@ async def sse_event_generator(topic: str, group_id: str, symbol: str):
     except asyncio.CancelledError:
         # 클라이언트 연결이 끊겼을 때 발생
         print(f"Client disconnected from stream for symbol: {symbol}")
-    finally:
-        if not consumer.is_closing():  # 종료 상태 확인
-            await consumer.stop()
-            print(f"Stream for {symbol} stopped.")
 
 
 def get_symbols_for_page(page: int, page_size: int = 20) -> List[str]:
@@ -233,10 +229,6 @@ async def sse_pagination_generator(topic: str, group_id: str, symbols: List[str]
 
     except asyncio.CancelledError:
         logger.info("Client disconnected from SSE stream.")
-    finally:
-        if not consumer.is_closing():  # 종료 상태 확인
-            await consumer.stop()
-            logger.info(f"Kafka consumer stopped - Group ID: {group_id}")
 
 
 def get_latest_symbols_data(symbols: List[str]) -> List[Dict[str, Any]]:
