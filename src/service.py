@@ -40,113 +40,6 @@ def format_data(row):
         "trading_value": f"{safe_float(row.get('trading_value', 0.0)):.2f}"
     }
 
-
-# async def get_filtered_data(symbol: str, interval: str, start_date=None):
-#     connection = get_db_connection()
-#     cursor = connection.cursor(dictionary=True)
-
-#     # interval 값을 숫자로 변환
-#     try:
-#         interval_minutes = int(interval.replace("m", ""))
-#     except ValueError:
-#         raise ValueError("Invalid interval format. Use values like '1m', '5m', '10m'.")
-
-#     if interval_minutes == 1:
-#         # 1분봉은 데이터베이스 값 그대로 조회
-#         query = """
-#             SELECT 
-#                 symbol,
-#                 open,
-#                 close,
-#                 high,
-#                 low,
-#                 volume,
-#                 trading_value,
-#                 DATE_FORMAT(date, '%Y-%m-%d %H:%i:00') AS date_group,
-#                 ROUND(rate, 2) AS rate,
-#                 rate_price
-#             FROM stock
-#             WHERE symbol = %s AND date >= %s AND TIME(date) != '00:00:00'
-#             ORDER BY date_group
-#         """
-#     else:
-#         # N분봉은 쿼리로 계산
-#         query = f"""
-#                 WITH grouped_data AS (
-#                     SELECT 
-#                         symbol,
-#                         DATE_FORMAT(
-#                             DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
-#                         ) AS date_group,
-#                         FIRST_VALUE(open) OVER (
-#                             PARTITION BY DATE_FORMAT(
-#                                 DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
-#                             ) ORDER BY date ASC
-#                         ) AS open,
-#                         LAST_VALUE(close) OVER (
-#                             PARTITION BY DATE_FORMAT(
-#                                 DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
-#                             ) ORDER BY date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
-#                         ) AS close,
-#                         MAX(high) OVER (
-#                             PARTITION BY DATE_FORMAT(
-#                                 DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
-#                             )
-#                         ) AS high,
-#                         MIN(low) OVER (
-#                             PARTITION BY DATE_FORMAT(
-#                                 DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
-#                             )
-#                         ) AS low,
-#                         SUM(volume) OVER (
-#                             PARTITION BY DATE_FORMAT(
-#                                 DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
-#                             )
-#                         ) AS volume,
-#                         SUM(trading_value) OVER (
-#                             PARTITION BY DATE_FORMAT(
-#                                 DATE_SUB(date, INTERVAL MINUTE(date) % {interval_minutes} MINUTE), '%Y-%m-%d %H:%i:00'
-#                             )
-#                         ) AS trading_value
-#                     FROM stock
-#                     WHERE symbol = %s AND date >= %s AND TIME(date) != '00:00:00'
-#                 ),
-#                 unique_data AS (
-#                     SELECT DISTINCT
-#                         symbol,
-#                         open,
-#                         close,
-#                         high,
-#                         low,
-#                         volume,
-#                         trading_value,
-#                         LAG(close) OVER (PARTITION BY symbol ORDER BY date_group ASC) AS prev_close,
-#                         date_group
-#                     FROM grouped_data
-#                 )
-#                 SELECT 
-#                     symbol,
-#                     open,
-#                     close,
-#                     high,
-#                     low,
-#                     volume,
-#                     trading_value,
-#                     ROUND((close - prev_close) / prev_close * 100, 2) AS rate, -- rate 계산
-#                     close - prev_close AS rate_price, -- rate_price 계산
-#                     date_group
-#                 FROM unique_data
-#                 WHERE prev_close IS NOT NULL -- 이전 데이터가 없는 첫 번째 그룹 제외
-#                 ORDER BY date_group;
-#         """
-
-#     cursor.execute(query, (symbol, start_date))
-#     rows = cursor.fetchall()
-#     formatted_rows = [format_data(row) for row in rows]
-#     cursor.close()
-#     connection.close()
-#     return formatted_rows
-
 async def get_filtered_data(symbol: str, interval: str, start_date=None):
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
@@ -277,6 +170,9 @@ async def sse_event_generator(topic: str, group_id: str, symbol: str):
     except asyncio.CancelledError:
         # 클라이언트 연결이 끊겼을 때 발생
         print(f"Client disconnected from stream for symbol: {symbol}")
+    finally:
+        await consumer.stop()  # 명확히 Consumer 닫기
+        logger.info(f"Kafka consumer stopped for group: {group_id}")
 
 
 def get_symbols_for_page(page: int, page_size: int = 20) -> List[str]:
@@ -344,7 +240,8 @@ def get_latest_symbols_data(symbols: List[str]) -> List[Dict[str, Any]]:
     cursor = database.cursor(dictionary=True)
 
     query = """
-        SELECT s1.symbol, s1.high, s1.low, s1.volume, s1.date, s1.open, s1.close, s1.rate, s1.rate_price, s1.trading_value
+        SELECT s1.symbol, s1.name, s1.high, s1.low, s1.volume, s1.date, s1.open, s1.close, 
+               s1.rate, s1.rate_price, s1.trading_value
         FROM stock s1
         INNER JOIN (
             SELECT symbol, MAX(date) AS max_date
