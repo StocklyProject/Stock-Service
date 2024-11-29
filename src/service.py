@@ -240,7 +240,7 @@ def get_latest_symbols_data(symbols: List[str]) -> List[Dict[str, Any]]:
     cursor = database.cursor(dictionary=True)
 
     query = """
-        SELECT s1.symbol, s1.name, s1.high, s1.low, s1.volume, s1.date, s1.open, s1.close, 
+        SELECT s1.symbol, c.name, s1.high, s1.low, s1.volume, s1.date, s1.open, s1.close, 
                s1.rate, s1.rate_price, s1.trading_value
         FROM stock s1
         INNER JOIN (
@@ -249,7 +249,8 @@ def get_latest_symbols_data(symbols: List[str]) -> List[Dict[str, Any]]:
             WHERE is_deleted = 0 AND symbol IN (%s)
             GROUP BY symbol
         ) s2 ON s1.symbol = s2.symbol AND s1.date = s2.max_date
-        WHERE s1.is_deleted = 0
+        INNER JOIN company c ON s1.symbol = c.symbol  -- company 테이블과 조인
+        WHERE s1.is_deleted = 0 AND c.is_deleted = 0  -- 삭제된 데이터 제외
         ORDER BY s1.id ASC  -- Ensure the ordering by id
         LIMIT 20            -- Limit to 20 records if needed
     """
