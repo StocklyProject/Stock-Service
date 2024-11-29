@@ -201,16 +201,31 @@ async def consume_and_aggregate():
                 if acc["first_open"] is None or acc["first_open"] == 0:
                     connection = await get_db_connection_async()
                     async with connection.cursor() as cursor:
-                        prev_close_query = """
+                        # 당일 00:00:00 시점의 close 값을 가져오는 쿼리
+                        today_start_query = """
                         SELECT close
                         FROM stock
-                        WHERE symbol = %s AND is_daily = 0
-                        ORDER BY date DESC
+                        WHERE symbol = %s AND is_daily = 0 AND date = %s
                         LIMIT 1
                         """
-                        await cursor.execute(prev_close_query, (symbol,))
-                        previous_data = await cursor.fetchone()
-                        acc["first_open"] = float(previous_data[0]) if previous_data else 0
+                        today_date = datetime.now(KST).replace(hour=0, minute=0, second=0, microsecond=0)
+                        await cursor.execute(today_start_query, (symbol, today_date))
+                        today_data = await cursor.fetchone()
+
+                        if today_data:  # 당일 데이터가 존재할 경우
+                            acc["first_open"] = float(today_data[0])
+                        else:  # 당일 데이터가 없을 경우 기존 로직으로 처리
+                            prev_close_query = """
+                            SELECT close
+                            FROM stock
+                            WHERE symbol = %s AND is_daily = 0
+                            ORDER BY date DESC
+                            LIMIT 1
+                            """
+                            await cursor.execute(prev_close_query, (symbol,))
+                            previous_data = await cursor.fetchone()
+                            acc["first_open"] = float(previous_data[0]) if previous_data else close_value
+
                 acc["latest_close"] = close_value
                 acc["high_max"] = max(acc["high_max"], close_value)  # close 값으로 high 계산
                 acc["low_min"] = min(acc["low_min"], close_value)    # close 값으로 low 계산
@@ -238,33 +253,34 @@ async def save_aggregated_data(commit_time):
         connection = await get_db_connection_async()
         async with connection.cursor() as cursor:
             for symbol, acc in symbol_accumulator.items():
-                if acc["count"] == 0:
-                    logger.warning(f"No data to save for symbol {symbol}")
-                    continue
-
+                
                 # 집계된 데이터
-                open_value = acc["first_open"]
+                open_value = acc["first_open"]  # 최초 데이터의 open 값을 그대로 사용
                 close_value = acc["latest_close"]
                 high_max = acc["high_max"]
                 low_min = acc["low_min"]
                 volume_sum = acc["volume_sum"]
                 trading_value = close_value * volume_sum
 
-                # 이전 close 값을 데이터베이스에서 가져옴
-                prev_close_query = """
-                SELECT close
-                FROM stock
-                WHERE symbol = %s AND is_daily = 0
-                ORDER BY date DESC
-                LIMIT 1
-                """
-                await cursor.execute(prev_close_query, (symbol,))
-                previous_data = await cursor.fetchone()
-                prev_close = previous_data[0] if previous_data else None
+                # 최초 데이터 처리
+                if acc["count"] == 1:  # 최초 데이터인 경우
+                    rate_price = close_value - open_value
+                    rate = round((rate_price / open_value) * 100, 2) if open_value else 0.0
+                else:
+                    # 이전 close 값을 데이터베이스에서 가져옴
+                    prev_close_query = """
+                    SELECT close
+                    FROM stock
+                    WHERE symbol = %s AND is_daily = 0
+                    ORDER BY date DESC
+                    LIMIT 1
+                    """
+                    await cursor.execute(prev_close_query, (symbol,))
+                    previous_data = await cursor.fetchone()
+                    prev_close = previous_data[0] if previous_data else open_value
 
-                # rate와 rate_price 계산
-                rate_price = close_value - prev_close if prev_close else 0
-                rate = round((rate_price / prev_close) * 100, 2) if prev_close else 0.0
+                    rate_price = close_value - prev_close
+                    rate = round((rate_price / prev_close) * 100, 2) if prev_close else 0.0
 
                 # 데이터 저장
                 query = """
