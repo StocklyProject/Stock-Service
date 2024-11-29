@@ -199,7 +199,18 @@ async def consume_and_aggregate():
                 # 누적 데이터 갱신
                 close_value = float(data.get("close", 0))
                 if acc["first_open"] is None:
-                    acc["first_open"] = float(data.get("open", 0))
+                    connection = await get_db_connection_async()
+                    async with connection.cursor() as cursor:
+                        prev_close_query = """
+                        SELECT close
+                        FROM stock
+                        WHERE symbol = %s AND is_daily = 0
+                        ORDER BY date DESC
+                        LIMIT 1
+                        """
+                        await cursor.execute(prev_close_query, (symbol,))
+                        previous_data = await cursor.fetchone()
+                        acc["first_open"] = float(previous_data[0]) if previous_data else 0
                 acc["latest_close"] = close_value
                 acc["high_max"] = max(acc["high_max"], close_value)  # close 값으로 high 계산
                 acc["low_min"] = min(acc["low_min"], close_value)    # close 값으로 low 계산
