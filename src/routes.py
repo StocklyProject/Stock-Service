@@ -125,7 +125,8 @@ async def get_historical_data_filtered(
 @router.get("/sse/stream/multiple/symbols", response_class=StreamingResponse)
 async def sse_stream_multiple(page: int = Query(1)):
     symbols = get_symbols_for_page(page)
-    group_id = f"sse_consumer_group_{page}"  # 고유한 group_id 생성
+    # group_id = f"sse_consumer_group_{page}"  # 고유한 group_id 생성
+    group_id = f"sse_consumer_group_{uuid.uuid4()}" 
     topic = "real_time_stock_prices"
 
     return StreamingResponse(sse_pagination_generator(topic, group_id, symbols), media_type="text/event-stream")
