@@ -100,8 +100,8 @@ async def get_filtered_data(symbol: str, interval: str, start_date=None):
                         ORDER BY sub.date ASC
                         LIMIT 1
                     ) AS first_open, -- 그룹의 첫 데이터 open 값
-                    MAX(high) AS high, -- 그룹 내 최고값
-                    MIN(low) AS low, -- 그룹 내 최저값
+                    GREATEST(MAX(close), MAX(open)) AS high, -- 그룹 내 close와 open의 최고값
+                    LEAST(MIN(close), MIN(open)) AS low,     -- 그룹 내 close와 open의 최저값
                     MAX(close) AS last_close, -- 그룹의 마지막 데이터 close 값
                     SUM(volume) AS total_volume, -- 그룹 내 총 volume
                     SUM(trading_value) AS total_trading_value -- 그룹 내 총 거래 금액

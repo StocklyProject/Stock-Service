@@ -169,16 +169,14 @@ async def aggregate_daily_data():
     except Exception as e:
         logger.error(f"Error during daily aggregation: {e}")
 
-
-
 # 심볼별 누적 데이터를 저장하는 딕셔너리
 symbol_accumulator = defaultdict(lambda: {
     "first_open": None,
     "latest_close": None,
-    "high_max": float("-inf"),
-    "low_min": float("inf"),
+    "high_max": float('-inf'),  # 1분간 close의 최대값
+    "low_min": float('inf'),    # 1분간 close의 최소값
     "volume_sum": 0,
-    "count": 0,
+    "count": 0
 })
 
 async def consume_and_aggregate():
@@ -195,27 +193,32 @@ async def consume_and_aggregate():
                     logger.warning(f"Missing symbol in message: {data}")
                     continue
 
-                # 누적 데이터 초기화 또는 갱신
+                # 심볼 데이터 가져오기
                 acc = symbol_accumulator[symbol]
+
+                # 누적 데이터 갱신
+                close_value = float(data.get("close", 0))
                 if acc["first_open"] is None:
                     acc["first_open"] = float(data.get("open", 0))
-                acc["latest_close"] = float(data.get("close", 0))
-                acc["high_max"] = max(acc["high_max"], float(data.get("high", 0)))
-                acc["low_min"] = min(acc["low_min"], float(data.get("low", 0)))
+                acc["latest_close"] = close_value
+                acc["high_max"] = max(acc["high_max"], close_value)  # close 값으로 high 계산
+                acc["low_min"] = min(acc["low_min"], close_value)    # close 값으로 low 계산
                 acc["volume_sum"] += int(data.get("volume", 0))
                 acc["count"] += 1
 
-                # 1분 간격으로 데이터 저장
+                # 1분 간격 데이터 저장
                 current_time = datetime.now(KST).replace(second=0, microsecond=0)
                 if (current_time - last_commit_time).seconds >= 60:
                     logger.info(f"Saving aggregated data at {current_time}")
                     await save_aggregated_data(current_time)
                     last_commit_time = current_time
+                    symbol_accumulator.clear()
 
             except Exception as e:
                 logger.error(f"Error processing message: {e}")
     finally:
         await consumer.stop()
+
 
 async def save_aggregated_data(commit_time):
     """Save aggregated data to the database."""
