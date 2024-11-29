@@ -13,7 +13,7 @@ async def async_kafka_consumer(topic: str, group_id: str) -> AIOKafkaConsumer:
         enable_auto_commit=True,
         max_poll_interval_ms=600000,
         session_timeout_ms=60000,
-        heartbeat_interval_ms=5000,
+        heartbeat_interval_ms=3,
         value_deserializer=lambda x: json.loads(x.decode('utf-8')) if x else None,
     )
     try:
