@@ -20,7 +20,7 @@ from src.faust_app.app import app_faust
 
 # 기존 최신 데이터 및 거래량 누적 변수 설정
 KST = pytz.timezone('Asia/Seoul')
-company_symbols = ['005930.KS', '003550.KS', '000660.KS', '207940.KS', '000270.KS']
+company_symbols = ['005930.KS', '003550.KS', '000660.KS', '207940.KS', '000270.KS', '035720.KS', '035420.KS', '225190.KS', '035900.KS', '010130.KS']
 
 # Kafka 데이터 큐 생성
 data_queue = asyncio.Queue()
@@ -198,7 +198,7 @@ async def consume_and_aggregate():
 
                 # 누적 데이터 갱신
                 close_value = float(data.get("close", 0))
-                if acc["first_open"] is None:
+                if acc["first_open"] is None or acc["first_open"] == 0:
                     connection = await get_db_connection_async()
                     async with connection.cursor() as cursor:
                         prev_close_query = """
