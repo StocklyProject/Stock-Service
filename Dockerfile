@@ -18,6 +18,9 @@ RUN pip install --upgrade pip && \
 # 서비스 소스 코드 복사
 COPY ./src/ ./src
 
+# PYTHONPATH 환경 변수 설정
+ENV PYTHONPATH=/Stock-Service
+
 # 환경 변수로 Kafka 브로커 주소 설정 (디폴트는 로컬 Kafka 브로커)
 ENV KAFKA_BROKER=kafka-broker.stockly.svc.cluster.local:9092
 

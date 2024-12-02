@@ -2,7 +2,8 @@ from aiokafka import AIOKafkaConsumer
 import json
 from .logger import logger
 
-async def async_kafka_consumer(topic: str, group_id: str):
+
+async def async_kafka_consumer(topic: str, group_id: str) -> AIOKafkaConsumer:
     consumer = AIOKafkaConsumer(
         topic,
         # bootstrap_servers=['kafka:9092'],
@@ -12,14 +13,17 @@ async def async_kafka_consumer(topic: str, group_id: str):
         enable_auto_commit=True,
         max_poll_interval_ms=600000,
         session_timeout_ms=60000,
-        heartbeat_interval_ms = 5000,
-        value_deserializer=lambda x: json.loads(x.decode('utf-8')) if x else None
+        heartbeat_interval_ms=3,
+        value_deserializer=lambda x: json.loads(x.decode('utf-8')) if x else None,
     )
     try:
         await consumer.start()
-        logger.info("Kafka connection successful.")
-        return consumer  # 연결 성공 시 consumer 반환
+        logger.info("Kafka consumer started.")
+        return consumer  # Consumer 객체 반환
     except Exception as e:
-        logger.error(f"Kafka connection failed: {e}")
-        return None  # 연결 실패 시 None 반환
+        logger.error(f"Error starting Kafka consumer for topic {topic} and group {group_id}: {e}")
+        await consumer.stop()  # 실패 시 명확히 종료
+        raise RuntimeError(f"Failed to initialize Kafka consumer for topic {topic} and group {group_id}")
+
+
 

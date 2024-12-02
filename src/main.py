@@ -13,12 +13,14 @@ from starlette.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pytz
 from .service import get_symbols_for_page
-from src.logger import logger
+from .logger import logger
 from collections import defaultdict
+from .consumer import async_kafka_consumer
+from src.faust_app.app import app_faust
 
 # 기존 최신 데이터 및 거래량 누적 변수 설정
 KST = pytz.timezone('Asia/Seoul')
-company_symbols = ['005930.KS', '003550.KS']  # ['삼성전자', 'LG']
+company_symbols = ['005930.KS', '003550.KS', '000660.KS', '207940.KS', '000270.KS', '035720.KS', '035420.KS', '225190.KS', '035900.KS', '010130.KS']
 
 # Kafka 데이터 큐 생성
 data_queue = asyncio.Queue()
@@ -93,163 +95,16 @@ async def store_historical_data():
             # 트랜잭션 커밋
             await connection.commit()
             logger.info("All historical data stored successfully.")
-async def fetch_latest_data(page: int = 1):
-    global data_queue
 
-    consumer = AIOKafkaConsumer(
-        'real_time_stock_prices',
-        auto_offset_reset='latest',
-        # bootstrap_servers=['kafka:9092'],
-        bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092'],
-        group_id=f'stock_data_group_page_{page}',
-        value_deserializer=lambda x: json.loads(x.decode('utf-8')) if x else None,
-        enable_auto_commit=True,
-    )
-
-    try:
-        logger.info("Starting Kafka consumer...")
-        await consumer.start()
-        logger.info("Kafka consumer started successfully.")
-
-        async for message in consumer:
-            try:
-                logger.debug(f"Message received: {message.value}")
-                data = message.value
-                if isinstance(data, dict):
-                    await data_queue.put(data)
-                    logger.info(f"Data added to queue: {data}")
-                else:
-                    logger.warning(f"Unexpected message format: {type(data)} - {data}")
-            except Exception as e:
-                logger.error(f"Error processing Kafka message: {e}")
-
-    except Exception as e:
-        logger.error(f"Error starting Kafka consumer: {e}")
-
-    finally:
-        logger.info("Stopping Kafka consumer...")
-        await consumer.stop()
-        logger.info("Kafka consumer stopped.")
-
-
-
-# 1분 동안의 데이터를 저장하는 딕셔너리
-symbol_accumulator = defaultdict(lambda: {
-    "first_open": None,  # 가장 처음 open 값
-    "latest_close": None,  # 가장 마지막 close 값
-    "high_max": float("-inf"),
-    "low_min": float("inf"),
-    "volume_sum": 0,
-    "rate_sum": 0.0,
-    "rate_price_sum": 0.0,
-    "count": 0
-})
-
-async def store_latest_data():
-    global data_queue, symbol_accumulator
-
-    # DB 연결
-    connection = await get_db_connection_async()
-    if not connection:
-        logger.error("Failed to establish database connection.")
-        return
-
-    async with connection.cursor() as cursor:
-        while not data_queue.empty():  # 큐에 데이터가 있을 때만 처리
-            data = await data_queue.get()
-            try:
-                symbol = data.get('symbol')
-                acc = symbol_accumulator[symbol]
-
-                # 가장 처음 open 값
-                if acc["first_open"] is None:
-                    acc["first_open"] = float(data.get('open', 0))
-
-                # 가장 마지막 close 값
-                acc["latest_close"] = float(data.get('close', 0))
-
-                # 데이터 누적
-                acc["high_max"] = max(acc["high_max"], float(data.get('high', 0)))
-                acc["low_min"] = min(acc["low_min"], float(data.get('low', 0)))
-                acc["volume_sum"] += int(data.get('volume', 0))
-                acc["rate_sum"] += float(data.get('rate', 0))
-                acc["rate_price_sum"] += float(data.get('rate_price', 0))
-                acc["count"] += 1
-
-            except Exception as e:
-                logger.error(f"Error accumulating data: {e}")
-
-        # 1분 동안 누적된 데이터를 처리
-        now_kst = datetime.now(KST)
-        try:
-            for symbol, acc in symbol_accumulator.items():
-                if acc["count"] == 0:  # 데이터가 없는 경우 건너뜀
-                    continue
-
-                # 누적된 데이터로 계산
-                open_value = acc["first_open"]  # 가장 처음 open 값
-                close_value = acc["latest_close"]  # 가장 마지막 close 값
-                high_max = acc["high_max"]
-                low_min = acc["low_min"]
-                volume_sum = acc["volume_sum"]
-                rate_avg = acc["rate_sum"] / acc["count"]  # 평균 rate
-                rate_price_avg = acc["rate_price_sum"] / acc["count"]  # 평균 rate_price
-                trading_value = close_value * volume_sum
-
-                # 데이터베이스 저장 값
-                values = (
-                    symbol,
-                    now_kst,
-                    open_value,
-                    close_value,
-                    high_max,
-                    low_min,
-                    volume_sum,
-                    rate_avg,
-                    rate_price_avg,
-                    trading_value,
-                    0
-                )
-
-                query = """
-                INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price, trading_value)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    open = VALUES(open),
-                    close = VALUES(close),
-                    high = VALUES(high),
-                    low = VALUES(low),
-                    volume = VALUES(volume),
-                    rate = VALUES(rate),
-                    rate_price = VALUES(rate_price),
-                    trading_value = VALUES(trading_value),
-                    is_daily = VALUES(is_daily)
-                """
-                await cursor.execute(query, values)
-                logger.info(f"Averaged data for symbol {symbol} stored successfully.")
-
-            # 누적 데이터 초기화
-            symbol_accumulator.clear()
-
-        except Exception as e:
-            logger.error(f"Error storing aggregated data: {e}")
-
-        await connection.commit()
 
 async def aggregate_daily_data():
+    """Aggregate daily data and store in the database."""
     try:
         connection = await get_db_connection_async()
-    except Exception as e:
-        logger.error(f"Failed to establish database connection: {e}")
-        return
-
-    async with connection.cursor() as cursor:
-        try:
-            # 어제 날짜 계산
+        async with connection.cursor() as cursor:
             today_kst = datetime.now(KST).date()
             yesterday_kst = today_kst - timedelta(days=1)
 
-            # 어제 분단위 데이터를 조회 및 집계
             query = """
             SELECT 
                 s.symbol,
@@ -272,7 +127,6 @@ async def aggregate_daily_data():
             await cursor.execute(query, (yesterday_kst, yesterday_kst))
             daily_data = await cursor.fetchall()
 
-            # 전날 종가 데이터를 가져오기
             prev_close_query = """
             SELECT symbol, close
             FROM stock
@@ -281,20 +135,12 @@ async def aggregate_daily_data():
             await cursor.execute(prev_close_query, (yesterday_kst - timedelta(days=1),))
             prev_close_data = {row[0]: row[1] for row in await cursor.fetchall()}
 
-            # 일별 데이터 저장
             for row in daily_data:
                 symbol, open_price, high, low, close, volume, trading_value = row
+                prev_close = prev_close_data.get(symbol)
 
-                # 전날 종가 가져오기
-                prev_close = prev_close_data.get(symbol, None)
-
-                # rate와 rate_price 계산
-                if prev_close is not None:
-                    rate_price = close - prev_close
-                    rate = (rate_price / prev_close) * 100 if prev_close else 0.0
-                else:
-                    rate_price = 0
-                    rate = 0.0
+                rate_price = close - prev_close if prev_close else 0
+                rate = (rate_price / prev_close) * 100 if prev_close else 0.0
 
                 insert_query = """
                 INSERT INTO stock (symbol, date, open, close, high, low, volume, trading_value, is_daily, rate, rate_price)
@@ -311,49 +157,175 @@ async def aggregate_daily_data():
                     rate_price = VALUES(rate_price)
                 """
                 await cursor.execute(insert_query, (
-                    symbol, yesterday_kst, open_price, close, high, low, volume, trading_value, rate, rate_price
+                    symbol, yesterday_kst, open_price, close, high, low, volume,
+                    trading_value, rate, rate_price
                 ))
 
-            # 어제 날짜의 분단위 데이터 삭제
             delete_query = "DELETE FROM stock WHERE DATE(date) = %s AND is_daily = 0"
             await cursor.execute(delete_query, (yesterday_kst,))
 
             await connection.commit()
-            logger.info(f"Aggregated and cleaned up data for {yesterday_kst}.")
+            logger.info(f"Aggregated daily data for {yesterday_kst}.")
+    except Exception as e:
+        logger.error(f"Error during daily aggregation: {e}")
 
-        except Exception as e:
-            logger.error(f"Error during daily aggregation: {e}")
+# 심볼별 누적 데이터를 저장하는 딕셔너리
+symbol_accumulator = defaultdict(lambda: {
+    "first_open": None,
+    "latest_close": None,
+    "high_max": float('-inf'),  # 1분간 close의 최대값
+    "low_min": float('inf'),    # 1분간 close의 최소값
+    "volume_sum": 0,
+    "count": 0
+})
 
-        finally:
-            if connection:
-                await connection.ensure_closed()
+async def consume_and_aggregate():
+    """Consume real-time stock data from Kafka and aggregate it."""
+    consumer = await async_kafka_consumer('real_time_stock_prices', 'stock_data_group_page')
+    try:
+        last_commit_time = datetime.now(KST).replace(second=0, microsecond=0)
+
+        async for message in consumer:
+            try:
+                data = message.value  # Kafka 메시지는 이미 dict로 변환된 상태
+                symbol = data.get("symbol")
+                if not symbol:
+                    logger.warning(f"Missing symbol in message: {data}")
+                    continue
+
+                # 심볼 데이터 가져오기
+                acc = symbol_accumulator[symbol]
+
+                # 누적 데이터 갱신
+                close_value = float(data.get("close", 0))
+                if acc["first_open"] is None or acc["first_open"] == 0:
+                    connection = await get_db_connection_async()
+                    async with connection.cursor() as cursor:
+                        # 당일 00:00:00 시점의 close 값을 가져오는 쿼리
+                        today_start_query = """
+                        SELECT close
+                        FROM stock
+                        WHERE symbol = %s AND is_daily = 0 AND date = %s
+                        LIMIT 1
+                        """
+                        today_date = datetime.now(KST).replace(hour=0, minute=0, second=0, microsecond=0)
+                        await cursor.execute(today_start_query, (symbol, today_date))
+                        today_data = await cursor.fetchone()
+
+                        if today_data:  # 당일 데이터가 존재할 경우
+                            acc["first_open"] = float(today_data[0])
+                        else:  # 당일 데이터가 없을 경우 기존 로직으로 처리
+                            prev_close_query = """
+                            SELECT close
+                            FROM stock
+                            WHERE symbol = %s AND is_daily = 0
+                            ORDER BY date DESC
+                            LIMIT 1
+                            """
+                            await cursor.execute(prev_close_query, (symbol,))
+                            previous_data = await cursor.fetchone()
+                            acc["first_open"] = float(previous_data[0]) if previous_data else close_value
+
+                acc["latest_close"] = close_value
+                acc["high_max"] = max(acc["high_max"], close_value)  # close 값으로 high 계산
+                acc["low_min"] = min(acc["low_min"], close_value)    # close 값으로 low 계산
+                acc["volume_sum"] += int(data.get("volume", 0))
+                acc["count"] += 1
+
+                # 1분 간격 데이터 저장
+                current_time = datetime.now(KST).replace(second=0, microsecond=0)
+                if (current_time - last_commit_time).seconds >= 60:
+                    logger.info(f"Saving aggregated data at {current_time}")
+                    await save_aggregated_data(current_time)
+                    last_commit_time = current_time
+                    symbol_accumulator.clear()
+
+            except Exception as e:
+                logger.error(f"Error processing message: {e}")
+    finally:
+        await consumer.stop()
 
 
+async def save_aggregated_data(commit_time):
+    """Save aggregated data to the database."""
+    global symbol_accumulator
+    try:
+        connection = await get_db_connection_async()
+        async with connection.cursor() as cursor:
+            for symbol, acc in symbol_accumulator.items():
+                
+                # 집계된 데이터
+                open_value = acc["first_open"]  # 최초 데이터의 open 값을 그대로 사용
+                close_value = acc["latest_close"]
+                high_max = acc["high_max"]
+                low_min = acc["low_min"]
+                volume_sum = acc["volume_sum"]
+                trading_value = close_value * volume_sum
 
-# lifespan 핸들러 설정
+                # 최초 데이터 처리
+                if acc["count"] == 1:  # 최초 데이터인 경우
+                    rate_price = close_value - open_value
+                    rate = round((rate_price / open_value) * 100, 2) if open_value else 0.0
+                else:
+                    # 이전 close 값을 데이터베이스에서 가져옴
+                    prev_close_query = """
+                    SELECT close
+                    FROM stock
+                    WHERE symbol = %s AND is_daily = 0
+                    ORDER BY date DESC
+                    LIMIT 1
+                    """
+                    await cursor.execute(prev_close_query, (symbol,))
+                    previous_data = await cursor.fetchone()
+                    prev_close = previous_data[0] if previous_data else open_value
+
+                    rate_price = close_value - prev_close
+                    rate = round((rate_price / prev_close) * 100, 2) if prev_close else 0.0
+
+                # 데이터 저장
+                query = """
+                INSERT INTO stock (symbol, date, open, close, high, low, volume, rate, rate_price, trading_value, is_daily)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)
+                ON DUPLICATE KEY UPDATE
+                    open = VALUES(open),
+                    close = VALUES(close),
+                    high = VALUES(high),
+                    low = VALUES(low),
+                    volume = VALUES(volume),
+                    rate = VALUES(rate),
+                    rate_price = VALUES(rate_price),
+                    trading_value = VALUES(trading_value)
+                """
+                values = (
+                    symbol, commit_time, prev_close, close_value, high_max,
+                    low_min, volume_sum, rate, rate_price, trading_value
+                )
+                logger.debug(f"Executing query for {symbol} with values: {values}")
+                await cursor.execute(query, values)
+
+            await connection.commit()
+            logger.info(f"Aggregated data saved successfully at {commit_time}.")
+            symbol_accumulator.clear()
+    except Exception as e:
+        logger.error(f"Error saving aggregated data: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 앱 시작 시 과거 데이터를 한 번만 저장
-    await store_historical_data()
+    await store_historical_data() 
+    kafka_task = asyncio.create_task(consume_and_aggregate())
 
-    # Kafka 데이터 수신 작업 비동기 시작
-    kafka_task = asyncio.create_task(fetch_latest_data())
-
-    # 스케줄러 설정 및 시작
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(store_latest_data, IntervalTrigger(seconds=60))  # 60초마다 실행
-    # scheduler.add_job(aggregate_daily_data, CronTrigger(hour=0, minute=0, timezone=KST))  # 매일 자정 실행
-    scheduler.add_job(aggregate_daily_data, IntervalTrigger(seconds=60))
+    scheduler.add_job(
+        aggregate_daily_data,
+        CronTrigger(hour=1, minute=0, timezone=KST)
+    )
     scheduler.start()
 
-    yield
-
-    # 종료 시 정리
-    scheduler.shutdown()
-    kafka_task.cancel()
-    await kafka_task
-
-
+    try:
+        yield
+    finally:
+        scheduler.shutdown()
+        kafka_task.cancel()
 
 # FastAPI 앱 설정
 app = FastAPI(lifespan=lifespan)
