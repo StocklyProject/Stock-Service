@@ -8,15 +8,17 @@ from aiokafka import AIOKafkaConsumer
 from .database import get_db_connection_async
 from datetime import datetime,timedelta
 import asyncio
-from . import routes as stockDetails_routes
+from .stock import routes as stockDetails_routes
 from starlette.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pytz
-from .service import get_symbols_for_page
+from .stock.service import get_symbols_for_page
 from .logger import logger
 from collections import defaultdict
 from .consumer import async_kafka_consumer
 from src.faust_app.app import app_faust
+from .alert import routes as alert_routes
+from .alert.service import consume_real_time_prices
 
 # 기존 최신 데이터 및 거래량 누적 변수 설정
 KST = pytz.timezone('Asia/Seoul')
@@ -312,7 +314,8 @@ async def save_aggregated_data(commit_time):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await store_historical_data() 
-    kafka_task = asyncio.create_task(consume_and_aggregate())
+    consume_aggregate_task = asyncio.create_task(consume_and_aggregate())
+    alert_task = asyncio.create_task(consume_real_time_prices())
 
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
@@ -324,8 +327,11 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        # 스케줄러 및 백그라운드 작업 정리
         scheduler.shutdown()
-        kafka_task.cancel()
+        consume_aggregate_task.cancel()
+        alert_task.cancel()
+        await asyncio.gather(consume_aggregate_task, alert_task, return_exceptions=True)
 
 # FastAPI 앱 설정
 app = FastAPI(lifespan=lifespan)
@@ -333,6 +339,7 @@ app = FastAPI(lifespan=lifespan)
 # 기존 라우터 및 미들웨어 유지
 router = APIRouter(prefix="/api/v1")
 app.include_router(stockDetails_routes.router)
+app.include_router(alert_routes.router)
 
 app.add_middleware(
     CORSMiddleware,
