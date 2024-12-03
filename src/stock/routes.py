@@ -5,12 +5,11 @@ from .service import sse_event_generator, get_filtered_data, get_symbols_for_pag
 import json
 import asyncio
 import pytz
-from datetime import timezone, timedelta
-from .database import get_db_connection
-from aiokafka import AIOKafkaConsumer
-from .logger import logger
+from datetime import timezone
+from ..database import get_db_connection
+from ..logger import logger
 import uuid
-from .faust_app.sse import sse_stream
+from ..faust_app.sse import sse_stream
 KST = pytz.timezone('Asia/Seoul')
 
 router = APIRouter(
@@ -22,7 +21,6 @@ router = APIRouter(
 @router.get("/sse/stream/{symbol}", response_class=StreamingResponse)
 async def sse_stream(symbol: str):
     topic = "real_time_stock_prices"
-    now_kst = datetime.now()
     group_id = f"sse_consumer_group_{uuid.uuid4()}"  # 고유한 group_id 생성
     return StreamingResponse(sse_event_generator(topic, group_id, symbol), media_type="text/event-stream")
 

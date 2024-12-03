@@ -2,7 +2,6 @@ from aiokafka import AIOKafkaConsumer
 import json
 from .logger import logger
 
-
 async def async_kafka_consumer(topic: str, group_id: str) -> AIOKafkaConsumer:
     consumer = AIOKafkaConsumer(
         topic,
