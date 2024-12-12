@@ -320,7 +320,7 @@ async def lifespan(app: FastAPI):
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         aggregate_daily_data,
-        CronTrigger(hour=1, minute=0, timezone=KST)
+        CronTrigger(hour=15, minute=30, timezone=KST)
     )
     scheduler.start()
 
