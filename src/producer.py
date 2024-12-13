@@ -5,8 +5,8 @@ import orjson
 
 async def init_kafka_producer():
     try:
-        # bootstrap_servers = ['kafka:9092']
-        bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092']
+        bootstrap_servers = ['kafka:9092']
+        # bootstrap_servers=['kafka-broker.stockly.svc.cluster.local:9092']
 
         if isinstance(bootstrap_servers, str):
             bootstrap_servers = [bootstrap_servers]
